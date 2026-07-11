@@ -1,0 +1,179 @@
+/* ARDM × VS Code: flat, dense, functional. Loaded last as the visual contract. */
+:root {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --panel: #252526;
+  --panel2: #2a2d2e;
+  --filter-bg: #2d2d2d;
+  --line: #333333;
+  --muted: #858585;
+  --text: #d4d4d4;
+  --accent: #2196f3;
+  --accent2: #4fc3f7;
+  --danger: #f44336;
+  --active-row: #2a2d2e;
+  --match-bg: #f6c177;
+  --match-text: #1e1e1e;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel2: #f0f4f8;
+  --filter-bg: #fafafa;
+  --line: #e8e8e8;
+  --muted: #6e7681;
+  --text: #24292e;
+  --accent: #0288d1;
+  --accent2: #2196f3;
+  --danger: #d32f2f;
+  --active-row: #f0f4f8;
+  --match-bg: #ffe58f;
+  --match-text: #000000;
+}
+
+::selection { background: var(--match-bg); color: var(--match-text); }
+*, *::before, *::after { box-shadow: none !important; }
+.content, .connect-card, .mark, .histogram-plot { background-image: none !important; }
+.settings-backdrop { backdrop-filter: none !important; }
+
+body, .content, .query-view { background: var(--bg); color: var(--text); }
+.workspace:not(.connection-only) .query-view { padding-top: 14px; }
+.sidebar { background: #252526; }
+[data-theme="light"] .sidebar { background: #f5f5f5; }
+
+/* Flat surfaces: no gradients, blur, glow, or decorative shadows. */
+.connect-card, .settings-panel, .profile-options, .time-popover, .query-console,
+.log-results-panel, .page-size-options, .config-switcher-menu, .dot.online,
+.adapter.selected, .profile-trigger.open, .profile-trigger:focus-visible,
+.time-picker .time.open, .segmented button.selected, .connection-tabs button.active {
+  box-shadow: none;
+}
+.settings-backdrop { background: #00000066; }
+
+button, input, textarea, select, .connect-card, .adapter, .adapter-logo,
+.profile-trigger, .profile-options, .profile-summary, .time, .time-popover,
+.time-summary, .query-console, .log-results-panel, .field-search, .field-item,
+.page-size-trigger, .page-size-options, .pagination button, .pagination input,
+.sidebar-action, .sidebar-action-icon, .config-switcher-menu, .log-tags span {
+  border-radius: 4px;
+}
+.log-level, .platform-tag { border-radius: 2px; }
+
+.query-toolbar textarea, .field-search, .field-search input, .form-grid input,
+.form-grid select, .select-field select, .profile-trigger, .time-summary,
+.pagination-jump input, .page-size-trigger { background: var(--filter-bg); }
+.query-console, .log-results-panel, .time-popover, .profile-options,
+.page-size-options, .config-switcher-menu { background: var(--panel); }
+
+.primary, .run, .query-toolbar .query-submit, .time-popover footer button {
+  background: #2196f3;
+  color: #ffffff;
+}
+.primary:hover, .run:hover, .query-toolbar .query-submit:hover,
+.time-popover footer button:hover { background: #1976d2; }
+[data-theme="light"] .primary, [data-theme="light"] .run,
+[data-theme="light"] .query-toolbar .query-submit,
+[data-theme="light"] .time-popover footer button { background: #0288d1; }
+
+.store:hover, .raw-log:hover, .results-table tbody tr:hover,
+.field-item:hover, .profile-options button:hover, .config-switcher-menu > button:hover {
+  background: var(--active-row);
+}
+.store { border: 1px solid transparent; color: var(--muted); }
+.store.active { border-color: #454545; background: #37373d; color: #d4d4d4; font-weight: 600; }
+.store.active .store-icon { color: #d4d4d4; }
+[data-theme="light"] .store.active { border-color: #d8dde3; background: #f0f4f8; color: #24292e; }
+[data-theme="light"] .store.active .store-icon { color: #24292e; }
+.eyebrow, .breadcrumb, .row-toggle, .json-node > button,
+.json-brace, .field-item small { color: var(--accent); }
+.breadcrumb { color: var(--muted); }
+.store-icon { color: var(--muted); }
+.profile-platform { color: var(--muted); }
+
+.query-toolbar textarea, .raw-log, .results-table table, .json-tree {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+.raw-log { color: var(--text); font-size: 12px; line-height: 1.4; }
+.raw-log time, .row-index, .platform-tag { color: var(--muted); }
+.raw-log time { font-weight: 500; }
+.raw-log, td { border-color: var(--line); }
+.platform-tag { border: 1px solid var(--line); background: transparent; }
+
+.log-tags .log-level, .results-table .log-level {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 5px;
+  border: 0;
+  background: transparent;
+  font: 700 10px/1.4 ui-monospace, monospace;
+}
+.log-level.level-fatal { background: #421616; color: #ff5370; }
+.log-level.level-error { color: #f44336; }
+.log-level.level-warn { color: #ffb74d; }
+.log-level.level-info { color: #4fc3f7; }
+.log-level.level-debug { color: #b5aea1; }
+.log-level.level-trace, .log-level.level-verbose { color: #71717a; }
+
+[data-theme="light"] .log-level.level-fatal { background: #ffeeeb; color: #d32f2f; }
+[data-theme="light"] .log-level.level-error { color: #d32f2f; }
+[data-theme="light"] .log-level.level-warn { color: #b78103; }
+[data-theme="light"] .log-level.level-info { color: #0288d1; }
+[data-theme="light"] .log-level.level-debug { color: #616161; }
+[data-theme="light"] .log-level.level-trace,
+[data-theme="light"] .log-level.level-verbose { color: #9e9e9e; }
+
+.histogram-bucket > span { background: #569cd6; }
+.histogram-bucket:hover, .histogram-bucket:focus-visible { background: var(--active-row); box-shadow: none; }
+.query-tool.favorite.active { background: #37373d; color: #f6c177; }
+[data-theme="light"] .query-tool.favorite.active { background: #f0f4f8; color: #b78103; }
+
+[data-theme="light"] .connect-card, [data-theme="light"] .adapter,
+[data-theme="light"] .query-console, [data-theme="light"] .log-results-panel,
+[data-theme="light"] .time-popover, [data-theme="light"] .profile-options,
+[data-theme="light"] .page-size-options { background: #ffffff; }
+[data-theme="light"] th { background: #f5f5f5; }
+[data-theme="light"] td { color: #24292e; border-color: #e8e8e8; }
+
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Compact connection home: one title, one choice, one action. */
+.connection-only .connect-view { width: min(720px, calc(100% - 64px)); padding-top: 40px; }
+.connection-only .compact-intro { margin-bottom: 14px; }
+.connection-only .compact-intro h1 { margin: 0; font-size: 22px; letter-spacing: -.3px; }
+.connection-only .connect-card { padding: 0 20px 20px; }
+.connection-only .connection-tabs { margin: 0 -20px 18px; padding: 4px; }
+.connection-only .connection-tabs button { height: 36px; }
+.connection-only .saved-connection-pane { padding: 0; }
+.connection-only .profile-trigger { min-height: 52px; }
+.connection-only .primary { height: 38px; margin-top: 16px; }
+.connection-only .form-grid { gap: 12px; }
+.connection-only .form-grid label { gap: 5px; }
+.connection-only .form-grid input,
+.connection-only .form-grid select { height: 38px; }
+
+.saved-profile-tools { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.saved-profile-tools > label { height: 36px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px; align-items: center; flex: 1; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--filter-bg); color: var(--muted); }
+.saved-profile-tools svg { width: 17px; height: 17px; }
+.saved-profile-tools svg circle, .saved-profile-tools svg path { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.saved-profile-tools input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 12px; }
+.saved-profile-tools button { width: 24px; height: 24px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.saved-profile-tools > span { min-width: 28px; color: var(--muted); font: 11px ui-monospace, monospace; text-align: right; }
+.saved-profile-list { border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.saved-profile-list > button { width: 100%; min-height: 54px; display: grid; grid-template-columns: 36px minmax(120px, .8fr) minmax(160px, 1.2fr) 18px; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; text-align: left; }
+.saved-profile-list > button:last-of-type { border-bottom: 0; }
+.saved-profile-list > button:hover { background: var(--active-row); }
+.saved-profile-list > button.selected { background: #37373d; }
+[data-theme="light"] .saved-profile-list > button.selected { background: #f0f4f8; }
+.saved-profile-copy { display: grid; gap: 3px; min-width: 0; }
+.saved-profile-copy strong, .saved-profile-copy small, .saved-profile-target { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-profile-copy strong { font-size: 12px; }
+.saved-profile-copy small, .saved-profile-target { color: var(--muted); font-size: 10px; }
+.saved-profile-list i { color: var(--muted); font-style: normal; text-align: center; }
+.saved-profile-list > button.selected i { color: var(--text); }
+.saved-profile-empty { display: grid; place-items: center; min-height: 120px; color: var(--muted); font-size: 12px; }
+.saved-profile-pagination { height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; color: var(--muted); font: 11px ui-monospace, monospace; }
+.saved-profile-pagination button { width: 28px; height: 26px; border: 1px solid var(--line); background: var(--filter-bg); color: var(--text); cursor: pointer; }
+.saved-profile-pagination button:disabled { opacity: .4; cursor: not-allowed; }
