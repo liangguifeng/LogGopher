@@ -24,7 +24,12 @@ func Open() (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create config directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "loggopher.db"))
+	return OpenPath(filepath.Join(dir, "loggopher.db"))
+}
+
+// OpenPath opens a SQLite store at an explicit path and applies all migrations.
+func OpenPath(path string) (*Store, error) {
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}

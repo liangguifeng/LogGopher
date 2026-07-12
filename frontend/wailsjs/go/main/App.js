@@ -18,8 +18,8 @@ export function Query(arg1) {
   return window['go']['main']['App']['Query'](arg1);
 }
 
-export function QueryHistory(arg1, arg2) {
-  return window['go']['main']['App']['QueryHistory'](arg1, arg2);
+export function QueryHistory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['QueryHistory'](arg1, arg2, arg3);
 }
 
 export function SaveSettings(arg1) {

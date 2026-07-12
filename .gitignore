@@ -9,6 +9,8 @@
 *.test
 *.out
 coverage.*
+/build/coverage/
+/frontend/coverage/
 *.coverprofile
 profile.cov
 *.prof

@@ -4,7 +4,7 @@
 
 目标是用稳定的领域模型统一多个日志平台的连接、资源发现与查询流程，并提供接近云厂商控制台的桌面交互。优先保证边界可扩展、凭证不落明文和真实云平台链路可验证。
 
-当前非目标：跨平台查询语法转换、聚合可视化、实时 Tail、团队凭证同步和多窗口协作。阿里云 SLS 与腾讯云 CLS 已接入官方 SDK；其余厂商能力不会在未接入时伪实现。
+当前非目标：跨平台查询语法转换、聚合可视化、实时 Tail、团队凭证同步和多窗口协作。阿里云 SLS、腾讯云 CLS 与 AWS CloudWatch Logs 已接入官方 SDK；其余厂商能力不会在未接入时伪实现。
 
 ## 架构
 
@@ -34,16 +34,16 @@ flowchart LR
 | 2026-07-11 | Wails v2.10.2 | 支持 Go 1.23，模板与生态稳定 | 后续升级需查 breaking changes |
 | 2026-07-11 | modernc SQLite | 纯 Go、跨平台构建不依赖系统 SQLite | 二进制体积增加 |
 | 2026-07-11 | 凭证存系统 Keychain | 支持历史连接重用，同时避免 SQLite 明文泄露 | 系统可能请求用户授权访问 |
-| 2026-07-11 | 未接入的云 Adapter 显式 stub | 失败可见，不伪造线上能力 | 当前仅 CloudWatch 返回明确未实现错误 |
 | 2026-07-12 | SLS 使用官方 `aliyun-log-go-sdk` | SDK 原生处理签名、压缩、进度轮询和错误模型 | 厂商类型只存在于 `internal/adapter`，请求受 30 秒超时和 Wails 生命周期约束 |
 | 2026-07-12 | CLS 使用官方 API 3.0 Go SDK | `DescribeTopics` 和 `SearchLog` 与最新 API 契约一致 | Topic 名称到 ID 的映射仅存在于 Adapter 会话缓存；请求使用 CQL、毫秒时间和 Offset 分页 |
+| 2026-07-12 | CloudWatch Logs 使用 AWS SDK for Go v2 | 官方 SigV4、Region 与 pagination token 行为由 SDK 实现 | 使用 Filter Pattern；总数为安全下界，厂商类型只存在于 `internal/adapter` |
 | 2026-07-12 | 删除本地演示能力与数据 | 产品只展示真实可用平台，避免假数据与线上行为混淆 | migration 清理历史 Demo Profile 和 Query History，Registry/UI 不再暴露 Demo |
 | 2026-07-11 | 设置写入 SQLite | 桌面偏好需跨重启保留且不含敏感信息 | 单行 `app_settings`，值域受约束 |
 | 2026-07-11 | 原生菜单 + 窗内快捷入口 | 遵循桌面平台习惯，同时保证跨平台可发现性 | 菜单经 Wails Events 驱动 React 状态 |
 
 ## 查询契约
 
-`ConnectionInput` 携带平台连接信息；连接成功返回 `Session` 与 Logstore 列表。`QueryInput` 使用统一时间范围、limit 和原生查询字符串。Adapter 负责平台级校验、分页及响应归一化。未来若要支持查询语法翻译，应增加独立 Query Dialect 层，不能把翻译规则塞入 UI。
+`ConnectionInput` 携带平台连接信息；连接成功返回 `Session.Groups`，以厂商中立的父资源分组承载 Logstore。SLS 将其映射为 `Project → Logstore`，CLS 将 Region 映射为 Topic 分组，CloudWatch Logs 映射为 `Region → Log Group`。`QueryInput.Group` 标识当前父资源，避免同名 Logstore 跨 Project 查询错位。`QueryInput` 其余字段使用统一时间范围、limit 和原生查询字符串。Adapter 负责平台级校验、分页及响应归一化。`QueryResult.Histogram` 只携带云平台计算的完整 `{from,to,count}` 时间序列，禁止前端从当前分页日志推算总量分布；CloudWatch 在尚未接入 Logs Insights 聚合前返回空 Histogram。未来若要支持查询语法翻译，应增加独立 Query Dialect 层，不能把翻译规则塞入 UI。
 
 ## 安全与信任边界
 
@@ -51,6 +51,7 @@ flowchart LR
 
 - SLS Endpoint 允许官方公网、私网、传输加速与已绑定的自定义域名，因此不做固定域名白名单；必须是无凭证、无路径、无 Query/Fragment 的 HTTP(S) URL。SDK HTTP 请求和重试均限制为 30 秒并绑定应用生命周期 Context。
 - CLS Endpoint 同样必须是无凭证、无路径、无 Query/Fragment 的 HTTP(S) URL；Region 是 API 3.0 签名必填项。SDK 请求限制为 30 秒并直接使用 `WithContext` 接收取消信号。
+- CloudWatch Logs Endpoint 允许 AWS 官方分区与用户显式配置的兼容端点，但强制 HTTPS，且禁止凭证、路径、Query 和 Fragment；Region 参与 SigV4 签名。SDK 使用静态凭证 Provider、30 秒 HTTP timeout 和调用 Context，凭证不会进入领域响应。
 - AK/SK 不写 SQLite、不写日志、不返回前端响应；新连接由 Go 写入系统 Keychain，历史连接由 Go 直接读取并建立会话。
 - SQLite 使用参数化查询，目录权限设为 `0700`。
 - 云 SDK 必须设置 timeout、分页上限和查询 limit，错误信息不得包含签名请求头。
@@ -59,9 +60,17 @@ flowchart LR
 ## 已知限制与演进顺序
 
 1. 增加历史连接编辑、删除以及 Keychain 凭证轮换。
-2. 实现 CloudWatch Adapter，统一分页和错误分类。
+2. 增加跨平台错误分类与 CloudWatch Logs Insights 聚合统计。
 3. 加入查询历史、字段展开、虚拟列表和 CSV/JSON 导出。
 4. 加入实时 Tail 与可视化聚合。
+
+## 测试策略
+
+- Domain、Storage、Credential 与 Application 使用 Go 单元/集成测试；SQLite 测试通过 `OpenPath` 使用独立临时数据库，禁止污染用户配置目录。
+- 云 Adapter 仅依赖收窄后的 SDK interface fake，验证分页、时间范围、查询参数、取消、错误和 DTO 归一化，不访问真实云服务，也不提供 synthetic fallback。
+- Wails 边界测试覆盖输入校验、连接、重连、查询和历史；依赖系统窗口 Context 的纯 UI Runtime 操作由 production build 验证。
+- React 使用 Vitest、jsdom 与 Testing Library，以用户可见行为覆盖连接流程、日期选择、结果树、嵌套 JSON、分页、筛选及日志库级设置。
+- `make coverage` 对 Go 与 frontend 同时设置最低覆盖率，报告目录被 Git 忽略；`make test-race` 用于检测 Service 会话与 Adapter cache 的数据竞争。
 
 ## 变更历史
 
@@ -71,8 +80,14 @@ flowchart LR
 - 2026-07-12：运行日志采用标准库 `log/slog` JSON Handler，`lumberjack` 仅负责文件滚动。日志目录遵循各平台用户日志约定，文件权限在 POSIX 系统设为 `0600`；按产品要求不执行日志内容脱敏，调用方负责控制写入内容。帮助菜单仅调用系统文件管理器打开已创建的日志目录。
 - 2026-07-12：查询历史持久化到 SQLite `query_history`，以 `profile_id + logstore + query` 唯一约束去重，每个日志库保留最近 50 条；前端通过 Wails API 读取最近 20 条。智能提示仅从当前标准化查询结果提取字段路径，不引入厂商 SDK 类型。
 - 2026-07-12：前端从扁平 `src` 重构为 `app / components / features / styles / assets` 分层；`main.tsx` 只负责挂载，`app` 负责 Wails API 编排，通用日期组件进入 `components`，日志结果业务进入 `features`，生成绑定继续固定在 `frontend/wailsjs`。
-- 2026-07-12：接入阿里云官方 `aliyun-log-go-sdk v0.1.122`。连接使用 `ListLogStore` 验证 Project 和读取权限；查询使用 `GetLogsV2` 完成进度轮询、倒序分页和统一 DTO 映射，并使用 `GetHistograms` 获取匹配总数。
+- 2026-07-12：接入阿里云官方 `aliyun-log-go-sdk v0.1.122`。连接不再要求用户输入 Project，而是分页调用 `ListProjectV2` 后逐个 `ListLogStore`，返回可折叠的 Project/Logstore 树；查询使用当前选中 Project 调用 `GetLogsV2`，并使用 `GetHistograms` 获取匹配总数。
 - 2026-07-12：结果菜单生成的 SLS `key:value` 条件优先使用字段索引精确查询；若 SLS 以 `ParameterInvalid` 明确指出该 key 未配置字段索引，Adapter 仅将对应条件降级为全文短语并自动重试，其余已索引条件保持不变。相同的有效表达式同时用于日志查询和 Histogram，避免两者统计口径分裂。
 - 2026-07-12：删除本地演示 Adapter、生成数据、测试和 UI 入口；SQLite migration 同步删除遗留 Demo 连接与查询历史。接入腾讯云 CLS API 3.0 Go SDK `v1.3.131`，使用 `DescribeTopics` 枚举 Topic、`SearchLog` 执行 CQL 检索，并以精确 SQL count 支撑统一分页总数。
+- 2026-07-12：修复日志分布图按当前分页数据错误计数的问题。SLS 直接归一化 `GetHistograms` buckets；CLS 使用 `time_series(__TIMESTAMP__, interval, format, padding)` 获取补零时间序列。Tooltip、柱高和点击钻取统一使用 Adapter 返回的真实边界与计数。
+- 2026-07-12：接入 AWS SDK for Go v2 CloudWatch Logs。连接分页调用 `DescribeLogGroups` 并映射为 `Region → Log Group`；查询使用 `FilterLogEvents` 的原生 Filter Pattern、毫秒时间范围和 continuation token。API 不提供精确总数，Adapter 仅返回足以驱动下一页的下界，禁止为计算总数扫描整个日志组；在未接入 Logs Insights 统计前不生成虚假 Histogram。
+- 2026-07-12：原始结果树对 Object/Array 形态的 JSON string 执行最多 12 层递归解码，普通字符串和解析失败内容保持原值；数组使用 `[]` 展示，嵌套叶子筛选携带完整字段路径，避免二级字段退化为不可展开文本。
+- 2026-07-12：JSON 默认展开层级以 `profile_id + group + logstore` 为前端会话作用域保存，默认 2 层、范围 0–8；切换日志库关闭设置弹层并恢复目标日志库的独立值，不写入全局 Settings 或 SQLite。
+- 2026-07-12：本地化 Edit 菜单保留自定义菜单项，但 Paste 不再调用受 WebView 权限约束的 `document.execCommand('paste')`；Go 侧通过 Wails Runtime 读取系统剪贴板，仅将文本注入当前聚焦的 input/textarea 并派发标准 input 事件，避免二次授权提示且兼容 React controlled input。
+- 2026-07-13：建立全应用测试体系。新增 Application/Wails 边界与 SQLite 集成测试、Adapter Registry 和校验矩阵；frontend 引入 Vitest + jsdom + Testing Library。`make test/test-race/coverage/check` 形成统一门禁，并将 Vite 升级到修复已知 dev-server 漏洞的 6.4.3。
 - 2026-07-11：补齐应用、文件、编辑、视图、窗口、帮助原生菜单与快捷键。
 - 2026-07-11：重构连接首屏、Adapter 下拉选择、历史连接直连与系统 Keychain 凭证持久化。

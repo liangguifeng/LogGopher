@@ -15,8 +15,8 @@ var ErrNotImplemented = errors.New("cloud SDK adapter is not implemented yet")
 type Adapter interface {
 	// Info returns stable metadata without opening a provider connection.
 	Info() domain.AdapterInfo
-	// Connect validates credentials and lists the provider's logstores.
-	Connect(context.Context, domain.ConnectionInput) ([]string, error)
+	// Connect validates credentials and lists grouped provider logstores.
+	Connect(context.Context, domain.ConnectionInput) ([]domain.LogGroup, error)
 	// Query maps a normalized request to the provider and normalizes its response.
 	Query(context.Context, domain.ConnectionInput, domain.QueryInput) (domain.QueryResult, error)
 }
@@ -29,11 +29,7 @@ func DefaultRegistry() *Registry {
 	r := &Registry{items: make(map[string]Adapter)}
 	r.Register(newAliyunSLSAdapter())
 	r.Register(newTencentCLSAdapter())
-	for _, info := range []domain.AdapterInfo{
-		{ID: "aws-cloudwatch", Name: "AWS CloudWatch", Description: "CloudWatch Logs", Ready: false},
-	} {
-		r.Register(stubAdapter{info: info})
-	}
+	r.Register(newAWSCloudWatchAdapter())
 	return r
 }
 
@@ -56,7 +52,7 @@ func (r *Registry) List() []domain.AdapterInfo {
 type stubAdapter struct{ info domain.AdapterInfo }
 
 func (a stubAdapter) Info() domain.AdapterInfo { return a.info }
-func (a stubAdapter) Connect(context.Context, domain.ConnectionInput) ([]string, error) {
+func (a stubAdapter) Connect(context.Context, domain.ConnectionInput) ([]domain.LogGroup, error) {
 	return nil, fmt.Errorf("%s: %w", a.info.Name, ErrNotImplemented)
 }
 func (a stubAdapter) Query(context.Context, domain.ConnectionInput, domain.QueryInput) (domain.QueryResult, error) {

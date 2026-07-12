@@ -56,7 +56,7 @@ func (a *App) Connect(input domain.ConnectionInput) (domain.Session, error) {
 		a.logger.Error("connection failed", "adapter_id", input.AdapterID, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return domain.Session{}, err
 	}
-	a.logger.Info("connection established", "adapter_id", input.AdapterID, "profile_id", session.ProfileID, "logstore_count", len(session.Logstores), "duration_ms", time.Since(started).Milliseconds())
+	a.logger.Info("connection established", "adapter_id", input.AdapterID, "profile_id", session.ProfileID, "logstore_count", sessionLogstoreCount(session), "duration_ms", time.Since(started).Milliseconds())
 	return session, nil
 }
 
@@ -71,7 +71,7 @@ func (a *App) ConnectSaved(profileID int64) (domain.Session, error) {
 		a.logger.Error("saved connection failed", "profile_id", profileID, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		return domain.Session{}, err
 	}
-	a.logger.Info("saved connection established", "profile_id", profileID, "logstore_count", len(session.Logstores), "duration_ms", time.Since(started).Milliseconds())
+	a.logger.Info("saved connection established", "profile_id", profileID, "logstore_count", sessionLogstoreCount(session), "duration_ms", time.Since(started).Milliseconds())
 	return session, nil
 }
 
@@ -91,11 +91,19 @@ func (a *App) Query(input domain.QueryInput) (domain.QueryResult, error) {
 }
 
 // QueryHistory returns persisted query history for the active logstore.
-func (a *App) QueryHistory(profileID int64, logstore string) ([]domain.QueryHistoryItem, error) {
+func (a *App) QueryHistory(profileID int64, group, logstore string) ([]domain.QueryHistoryItem, error) {
 	if profileID <= 0 || logstore == "" {
 		return []domain.QueryHistoryItem{}, nil
 	}
-	return a.service.QueryHistory(profileID, logstore)
+	return a.service.QueryHistory(profileID, group, logstore)
+}
+
+func sessionLogstoreCount(session domain.Session) int {
+	total := 0
+	for _, group := range session.Groups {
+		total += len(group.Logstores)
+	}
+	return total
 }
 
 // SaveSettings persists preferences and rebuilds the localized native menu.

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ var aliyunUnindexedKeyPattern = regexp.MustCompile(`(?i)key \(([^)]+)\) is not c
 
 // aliyunSLSClient is the narrow portion of the vendor SDK used by this adapter.
 type aliyunSLSClient interface {
+	ListProjectV2(offset, size int) ([]sls.LogProject, int, int, error)
 	ListLogStore(project string) ([]string, error)
 	GetLogsToCompletedV2(project, logstore string, request *sls.GetLogRequest) (*sls.GetLogsResponse, error)
 	GetHistogramsToCompletedV2(
@@ -50,8 +52,8 @@ func (a *aliyunSLSAdapter) Info() domain.AdapterInfo {
 	}
 }
 
-// Connect validates the credentials and returns every Logstore in the configured Project.
-func (a *aliyunSLSAdapter) Connect(ctx context.Context, input domain.ConnectionInput) ([]string, error) {
+// Connect discovers accessible Projects and their Logstores through the official SLS API.
+func (a *aliyunSLSAdapter) Connect(ctx context.Context, input domain.ConnectionInput) ([]domain.LogGroup, error) {
 	client, err := a.client(ctx, input)
 	if err != nil {
 		return nil, err
@@ -59,11 +61,47 @@ func (a *aliyunSLSAdapter) Connect(ctx context.Context, input domain.ConnectionI
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	logstores, err := client.ListLogStore(strings.TrimSpace(input.Project))
+	projects, err := listAllAliyunProjects(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("list Alibaba Cloud SLS Logstores: %w", err)
+		return nil, fmt.Errorf("list Alibaba Cloud SLS Projects: %w", err)
 	}
-	return logstores, nil
+	groups := make([]domain.LogGroup, 0, len(projects))
+	for _, project := range projects {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		logstores, err := client.ListLogStore(project)
+		if err != nil {
+			return nil, fmt.Errorf("list Alibaba Cloud SLS Logstores for project %q: %w", project, err)
+		}
+		sort.Strings(logstores)
+		groups = append(groups, domain.LogGroup{Name: project, Logstores: logstores})
+	}
+	return groups, nil
+}
+
+func listAllAliyunProjects(ctx context.Context, client aliyunSLSClient) ([]string, error) {
+	const pageSize = 500
+	projects := make([]string, 0)
+	for offset := 0; ; offset += pageSize {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		page, count, total, err := client.ListProjectV2(offset, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		for _, project := range page {
+			if name := strings.TrimSpace(project.Name); name != "" {
+				projects = append(projects, name)
+			}
+		}
+		if count == 0 || offset+count >= total {
+			break
+		}
+	}
+	sort.Strings(projects)
+	return projects, nil
 }
 
 // Query executes an SLS search and normalizes its page into provider-neutral log entries.
@@ -80,6 +118,10 @@ func (a *aliyunSLSAdapter) Query(
 	client, err := a.client(ctx, input)
 	if err != nil {
 		return domain.QueryResult{}, err
+	}
+	project := strings.TrimSpace(query.Group)
+	if project == "" {
+		return domain.QueryResult{}, errors.New("Alibaba Cloud SLS project is required for querying")
 	}
 	limit := query.Limit
 	if limit <= 0 {
@@ -103,7 +145,7 @@ func (a *aliyunSLSAdapter) Query(
 		IsAccurate: &accurate,
 	}
 	response, effectiveExpression, err := queryAliyunLogs(
-		ctx, client, strings.TrimSpace(input.Project), query.Logstore, request,
+		ctx, client, project, query.Logstore, request,
 	)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query Alibaba Cloud SLS logs: %w", err)
@@ -116,8 +158,9 @@ func (a *aliyunSLSAdapter) Query(
 	}
 
 	total := int(response.Count)
+	buckets := make([]domain.HistogramBucket, 0)
 	histogram, histogramErr := client.GetHistogramsToCompletedV2(
-		strings.TrimSpace(input.Project),
+		project,
 		query.Logstore,
 		&sls.GetHistogramRequest{
 			From: from.Unix(), To: to.Unix(), Query: aliyunSearchExpression(effectiveExpression),
@@ -128,6 +171,7 @@ func (a *aliyunSLSAdapter) Query(
 	}
 	if histogramErr == nil && histogram != nil {
 		total = int(histogram.Count)
+		buckets = normalizeAliyunHistogram(histogram.Histograms)
 	} else if response.Count == int64(limit) {
 		// Preserve a usable next page when histogram permission or indexing is unavailable.
 		total = (page * limit) + 1
@@ -138,8 +182,22 @@ func (a *aliyunSLSAdapter) Query(
 		entries = append(entries, normalizeAliyunLog(log))
 	}
 	return domain.QueryResult{
-		TookMS: time.Since(started).Milliseconds(), Total: total, Entries: entries,
+		TookMS: time.Since(started).Milliseconds(), Total: total,
+		Entries: entries, Histogram: buckets,
 	}, nil
+}
+
+// normalizeAliyunHistogram preserves the provider's exact bucket boundaries and counts.
+func normalizeAliyunHistogram(histograms []sls.SingleHistogram) []domain.HistogramBucket {
+	buckets := make([]domain.HistogramBucket, 0, len(histograms))
+	for _, histogram := range histograms {
+		buckets = append(buckets, domain.HistogramBucket{
+			From:  time.Unix(histogram.From, 0).UTC().Format(time.RFC3339Nano),
+			To:    time.Unix(histogram.To, 0).UTC().Format(time.RFC3339Nano),
+			Count: histogram.Count,
+		})
+	}
+	return buckets
 }
 
 // queryAliyunLogs retries UI-generated filters as full-text phrases when SLS reports an unindexed key.
@@ -242,10 +300,8 @@ func (transport contextRoundTripper) RoundTrip(request *http.Request) (*http.Res
 
 // validateAliyunInput rejects incomplete or structurally invalid SLS connection settings.
 func validateAliyunInput(input domain.ConnectionInput) error {
-	if strings.TrimSpace(input.AccessKey) == "" ||
-		strings.TrimSpace(input.SecretKey) == "" ||
-		strings.TrimSpace(input.Project) == "" {
-		return errors.New("Alibaba Cloud SLS requires AK, SK and project")
+	if strings.TrimSpace(input.AccessKey) == "" || strings.TrimSpace(input.SecretKey) == "" {
+		return errors.New("Alibaba Cloud SLS requires AK and SK")
 	}
 	endpoint, err := url.ParseRequestURI(strings.TrimSpace(input.Endpoint))
 	if err != nil || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.Host == "" {

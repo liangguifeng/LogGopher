@@ -142,6 +142,32 @@
 .log-toolbar label input {
   accent-color: #1688e6;
 }
+.json-settings { position: relative; }
+.log-toolbar .json-settings-trigger {
+  width: 30px; height: 26px; display: grid; place-items: center; padding: 0;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--muted);
+}
+.log-toolbar .json-settings-trigger:hover,
+.log-toolbar .json-settings-trigger.active { border-color: var(--accent); color: var(--accent); }
+.json-settings-trigger svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+.json-settings-popover {
+  position: absolute; z-index: 40; top: calc(100% + 7px); left: 0; width: 250px;
+  padding: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--text);
+}
+.json-settings-popover header { display: flex; flex-direction: column; gap: 3px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.json-settings-popover header strong { font-size: 12px; }
+.json-settings-popover header small { color: var(--muted); font-size: 10px; }
+.json-depth-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 12px 0; }
+.json-depth-row > span { color: var(--muted); font-size: 11px; }
+.json-depth-row > div { display: grid; grid-template-columns: 28px 34px 28px; }
+.json-depth-row button, .json-depth-row strong { height: 28px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--filter-bg); color: var(--text); }
+.json-depth-row button:first-child { border-radius: 3px 0 0 3px; }
+.json-depth-row button:last-child { border-radius: 0 3px 3px 0; }
+.json-depth-row strong { border-inline: 0; font-size: 12px; }
+.json-depth-row button:disabled, .json-depth-reset:disabled { cursor: not-allowed; opacity: .4; }
+.json-depth-row em { color: var(--muted); font-size: 10px; font-style: normal; }
+.json-depth-reset { width: 100%; height: 28px; border: 1px solid var(--line); border-radius: 3px; background: var(--filter-bg); color: var(--muted); font-size: 10px; }
+.json-depth-reset:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 .pagination {
   display: flex;
   align-items: center;

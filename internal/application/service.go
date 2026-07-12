@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/liangguifeng/LogGopher/internal/adapter"
@@ -51,7 +52,7 @@ func (s *Service) Connect(in domain.ConnectionInput) (domain.Session, error) {
 	if !ok {
 		return domain.Session{}, errors.New("unknown adapter")
 	}
-	logstores, err := a.Connect(s.ctx, in)
+	groups, err := a.Connect(s.ctx, in)
 	if err != nil {
 		return domain.Session{}, err
 	}
@@ -65,7 +66,7 @@ func (s *Service) Connect(in domain.ConnectionInput) (domain.Session, error) {
 	s.mu.Lock()
 	s.sessions[id] = in
 	s.mu.Unlock()
-	return domain.Session{ProfileID: id, Logstores: logstores}, nil
+	return domain.Session{ProfileID: id, Groups: groups}, nil
 }
 
 // ConnectSaved restores metadata and credentials before opening a new active session.
@@ -87,14 +88,14 @@ func (s *Service) ConnectSaved(profileID int64) (domain.Session, error) {
 	if !ok {
 		return domain.Session{}, errors.New("unknown adapter")
 	}
-	logstores, err := a.Connect(s.ctx, in)
+	groups, err := a.Connect(s.ctx, in)
 	if err != nil {
 		return domain.Session{}, err
 	}
 	s.mu.Lock()
 	s.sessions[profileID] = in
 	s.mu.Unlock()
-	return domain.Session{ProfileID: profileID, Logstores: logstores}, nil
+	return domain.Session{ProfileID: profileID, Groups: groups}, nil
 }
 
 // Query delegates a vendor-neutral query to the adapter for an active session.
@@ -108,12 +109,20 @@ func (s *Service) Query(q domain.QueryInput) (domain.QueryResult, error) {
 	a, _ := s.registry.Get(in.AdapterID)
 	result, err := a.Query(s.ctx, in, q)
 	if err == nil {
-		_ = s.store.SaveQueryHistory(q.ProfileID, q.Logstore, q.Query)
+		_ = s.store.SaveQueryHistory(q.ProfileID, queryHistoryScope(q.Group, q.Logstore), q.Query)
 	}
 	return result, err
 }
 
 // QueryHistory returns recently executed queries scoped to a profile and logstore.
-func (s *Service) QueryHistory(profileID int64, logstore string) ([]domain.QueryHistoryItem, error) {
-	return s.store.QueryHistory(profileID, logstore, 20)
+func (s *Service) QueryHistory(profileID int64, group, logstore string) ([]domain.QueryHistoryItem, error) {
+	return s.store.QueryHistory(profileID, queryHistoryScope(group, logstore), 20)
+}
+
+// queryHistoryScope prevents identically named logstores in different groups from sharing history.
+func queryHistoryScope(group, logstore string) string {
+	if strings.TrimSpace(group) == "" {
+		return logstore
+	}
+	return group + "\x1f" + logstore
 }

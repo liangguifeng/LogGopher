@@ -37,7 +37,7 @@ func newApplicationMenu(app *App, language string) *menu.Menu {
 	edit.AddSeparator()
 	edit.AddText(l.cut, keys.CmdOrCtrl("x"), editCommand(app, "cut"))
 	edit.AddText(l.copy, keys.CmdOrCtrl("c"), editCommand(app, "copy"))
-	edit.AddText(l.paste, keys.CmdOrCtrl("v"), editCommand(app, "paste"))
+	edit.AddText(l.paste, keys.CmdOrCtrl("v"), pasteCommand(app))
 	edit.AddText(l.delete, nil, editCommand(app, "delete"))
 	edit.AddSeparator()
 	edit.AddText(l.selectAll, keys.CmdOrCtrl("a"), editCommand(app, "selectAll"))
@@ -140,4 +140,36 @@ func editCommand(app *App, command string) menu.Callback {
 	return func(*menu.CallbackData) {
 		runtime.WindowExecJS(app.ctx, "document.execCommand("+fmt.Sprintf("%q", command)+")")
 	}
+}
+
+func pasteCommand(app *App) menu.Callback {
+	return func(*menu.CallbackData) {
+		text, err := runtime.ClipboardGetText(app.ctx)
+		if err != nil {
+			app.logger.Error("read clipboard for paste", "error", err)
+			return
+		}
+		runtime.WindowExecJS(app.ctx, pasteScript(text))
+	}
+}
+
+// pasteScript inserts trusted clipboard text without invoking the browser Clipboard API.
+func pasteScript(text string) string {
+	return `(function(text){
+		const element=document.activeElement;
+		if(element instanceof HTMLInputElement||element instanceof HTMLTextAreaElement){
+			const start=element.selectionStart??element.value.length;
+			const end=element.selectionEnd??start;
+			const next=element.value.slice(0,start)+text+element.value.slice(end);
+			const descriptor=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element),'value');
+			descriptor&&descriptor.set?descriptor.set.call(element,next):element.value=next;
+			const caret=start+text.length;
+			element.setSelectionRange(caret,caret);
+			element.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste',data:text}));
+			return;
+		}
+		if(element instanceof HTMLElement&&element.isContentEditable){
+			document.execCommand('insertText',false,text);
+		}
+	})(` + fmt.Sprintf("%q", text) + `);`
 }

@@ -83,3 +83,33 @@ func TestDefaultDirectoryUsesPlatformLogLocation(t *testing.T) {
 		t.Fatalf("unexpected Linux log directory: %s", directory)
 	}
 }
+
+func TestWailsLoggerWritesEveryNonFatalLevel(t *testing.T) {
+	directory := t.TempDir()
+	manager, err := NewWithConfig(Config{Directory: directory, Level: slog.LevelDebug - 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.Directory() != directory || manager.WailsLogger() == nil {
+		t.Fatalf("manager accessors returned invalid values")
+	}
+	logger := manager.WailsLogger()
+	logger.Print("print")
+	logger.Trace("trace")
+	logger.Debug("debug")
+	logger.Info("info")
+	logger.Warning("warning")
+	logger.Error("error")
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(directory, logFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"print", "trace", "debug", "info", "warning", "error"} {
+		if !strings.Contains(string(content), `"msg":"`+message+`"`) {
+			t.Fatalf("log output does not contain %q: %s", message, content)
+		}
+	}
+}

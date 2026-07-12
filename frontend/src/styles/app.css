@@ -83,6 +83,24 @@ textarea {
 .store-icon {
   color: var(--accent);
 }
+
+.logstore-tree { overflow: auto; padding: 2px 6px; }
+.log-group + .log-group { margin-top: 2px; }
+.project-node {
+  width: 100%; min-height: 34px; display: grid; grid-template-columns: 16px 18px minmax(0, 1fr) auto;
+  align-items: center; gap: 7px; padding: 5px 7px; border: 1px solid transparent;
+  border-radius: 3px; background: transparent; color: var(--text); text-align: left;
+}
+.project-node:hover { background: var(--active-row); }
+.project-node > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-node small { color: var(--muted); font: 500 11px ui-monospace, monospace; }
+.project-chevron, .project-icon { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.project-chevron { width: 15px; height: 15px; color: var(--muted); transition: transform 120ms ease; }
+.project-chevron.expanded { transform: rotate(90deg); }
+.project-icon { width: 17px; height: 17px; color: var(--muted); }
+.log-group-children { margin-left: 14px; padding-left: 10px; border-left: 1px solid var(--border); }
+.tree-store { width: 100%; padding-left: 7px; }
+.tree-store > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty {
   display: grid;
   place-items: center;

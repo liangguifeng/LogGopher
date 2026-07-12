@@ -38,13 +38,9 @@ func (c ConnectionInput) Validate() error {
 		return errors.New("access key and secret key are required")
 	}
 	switch c.AdapterID {
-	case "aliyun-sls":
-		if strings.TrimSpace(c.Project) == "" {
-			return errors.New("Alibaba Cloud SLS project is required")
-		}
-	case "tencent-cls":
+	case "tencent-cls", "aws-cloudwatch":
 		if strings.TrimSpace(c.Region) == "" {
-			return errors.New("Tencent Cloud CLS region is required")
+			return errors.New("region is required")
 		}
 	}
 	return nil
@@ -93,15 +89,22 @@ func (s Settings) Validate() error {
 	return nil
 }
 
-// Session identifies an active connection and its available logstores.
-type Session struct {
-	ProfileID int64    `json:"profileId"`
+// LogGroup groups logstores under their provider-level parent resource.
+type LogGroup struct {
+	Name      string   `json:"name"`
 	Logstores []string `json:"logstores"`
+}
+
+// Session identifies an active connection and its available grouped logstores.
+type Session struct {
+	ProfileID int64      `json:"profileId"`
+	Groups    []LogGroup `json:"groups"`
 }
 
 // QueryInput is the vendor-neutral request accepted by every adapter.
 type QueryInput struct {
 	ProfileID int64  `json:"profileId"`
+	Group     string `json:"group"`
 	Logstore  string `json:"logstore"`
 	Query     string `json:"query"`
 	From      string `json:"from"`
@@ -118,11 +121,19 @@ type LogEntry struct {
 	Fields  map[string]string `json:"fields"`
 }
 
+// HistogramBucket represents the exact provider-side count for one time interval.
+type HistogramBucket struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Count int64  `json:"count"`
+}
+
 // QueryResult contains one page of normalized log records.
 type QueryResult struct {
-	TookMS  int64      `json:"tookMs"`
-	Total   int        `json:"total"`
-	Entries []LogEntry `json:"entries"`
+	TookMS    int64             `json:"tookMs"`
+	Total     int               `json:"total"`
+	Entries   []LogEntry        `json:"entries"`
+	Histogram []HistogramBucket `json:"histogram"`
 }
 
 // QueryHistoryItem represents a recently executed query persisted in SQLite.

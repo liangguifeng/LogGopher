@@ -114,6 +114,22 @@ export namespace domain {
 	        this.region = source["region"];
 	    }
 	}
+	export class HistogramBucket {
+	    from: string;
+	    to: string;
+	    count: number;
+
+	    static createFrom(source: any = {}) {
+	        return new HistogramBucket(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.from = source["from"];
+	        this.to = source["to"];
+	        this.count = source["count"];
+	    }
+	}
 	export class LogEntry {
 	    time: string;
 	    level: string;
@@ -130,6 +146,20 @@ export namespace domain {
 	        this.level = source["level"];
 	        this.message = source["message"];
 	        this.fields = source["fields"];
+	    }
+	}
+	export class LogGroup {
+	    name: string;
+	    logstores: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new LogGroup(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.logstores = source["logstores"];
 	    }
 	}
 
@@ -149,6 +179,7 @@ export namespace domain {
 	}
 	export class QueryInput {
 	    profileId: number;
+	    group: string;
 	    logstore: string;
 	    query: string;
 	    from: string;
@@ -163,6 +194,7 @@ export namespace domain {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.profileId = source["profileId"];
+	        this.group = source["group"];
 	        this.logstore = source["logstore"];
 	        this.query = source["query"];
 	        this.from = source["from"];
@@ -175,6 +207,7 @@ export namespace domain {
 	    tookMs: number;
 	    total: number;
 	    entries: LogEntry[];
+	    histogram: HistogramBucket[];
 
 	    static createFrom(source: any = {}) {
 	        return new QueryResult(source);
@@ -185,6 +218,7 @@ export namespace domain {
 	        this.tookMs = source["tookMs"];
 	        this.total = source["total"];
 	        this.entries = this.convertValues(source["entries"], LogEntry);
+	        this.histogram = this.convertValues(source["histogram"], HistogramBucket);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -207,7 +241,7 @@ export namespace domain {
 	}
 	export class Session {
 	    profileId: number;
-	    logstores: string[];
+	    groups: LogGroup[];
 
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
@@ -216,8 +250,26 @@ export namespace domain {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.profileId = source["profileId"];
-	        this.logstores = source["logstores"];
+	        this.groups = this.convertValues(source["groups"], LogGroup);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

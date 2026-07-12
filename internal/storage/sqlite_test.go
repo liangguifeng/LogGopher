@@ -2,6 +2,8 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/liangguifeng/LogGopher/internal/domain"
@@ -45,6 +47,67 @@ func TestMigration(t *testing.T) {
 	saved, err := s.Settings()
 	if err != nil || saved != settings {
 		t.Fatalf("settings were not persisted: got %+v, err %v", saved, err)
+	}
+}
+
+func TestOpenPathProfilesAndMissingProfile(t *testing.T) {
+	store, err := OpenPath(filepath.Join(t.TempDir(), "profiles.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first := domain.ConnectionInput{
+		AdapterID: "aliyun-sls", Name: "production", Endpoint: "https://example.com",
+		Project: "project-a", Region: "cn-hangzhou",
+	}
+	firstID, err := store.SaveProfile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := store.SaveProfile(domain.ConnectionInput{AdapterID: "tencent-cls", Name: "staging"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := store.Profiles()
+	if err != nil || len(profiles) != 2 {
+		t.Fatalf("Profiles() = %#v, %v", profiles, err)
+	}
+	profile, err := store.Profile(firstID)
+	if err != nil || profile.Project != "project-a" || profile.ID != firstID {
+		t.Fatalf("Profile() = %#v, %v", profile, err)
+	}
+	if _, err := store.Profile(secondID + 100); err == nil {
+		t.Fatal("Profile() found a missing profile")
+	}
+}
+
+func TestQueryHistoryTrimsAndIgnoresInvalidEntries(t *testing.T) {
+	store, err := OpenPath(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for index := 0; index < 55; index++ {
+		if err := store.SaveQueryHistory(1, "app", fmt.Sprintf("query-%02d", index)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, invalid := range []struct {
+		profileID int64
+		logstore  string
+		query     string
+	}{{0, "app", "ignored"}, {1, "", "ignored"}, {1, "app", "  "}} {
+		if err := store.SaveQueryHistory(invalid.profileID, invalid.logstore, invalid.query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := store.QueryHistory(1, "app", 100)
+	if err != nil || len(items) != 20 {
+		t.Fatalf("QueryHistory(default limit) = %d, %v", len(items), err)
+	}
+	items, err = store.QueryHistory(1, "app", 50)
+	if err != nil || len(items) != 50 {
+		t.Fatalf("QueryHistory(50) = %d, %v", len(items), err)
 	}
 }
 

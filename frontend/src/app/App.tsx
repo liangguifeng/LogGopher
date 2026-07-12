@@ -23,7 +23,7 @@ import DateTimeField from "../components/date-time-picker/DateTimeField";
 import LogResults from "../features/log-results/LogResults";
 
 /** Adapter metadata rendered by the connection workflow. */
-type Adapter = { id: string; name: string; ready: boolean };
+type Adapter = { id: string; name: string; description: string; ready: boolean };
 /** Non-secret metadata for a saved platform connection. */
 type Profile = {
   id: number;
@@ -40,8 +40,15 @@ type Entry = {
   message: string;
   fields: Record<string, string>;
 };
+/** Exact provider-side count for one histogram interval. */
+type HistogramBucket = { from: string; to: string; count: number };
 /** One paginated query response. */
-type Result = { tookMs: number; total: number; entries: Entry[] };
+type Result = {
+  tookMs: number;
+  total: number;
+  entries: Entry[];
+  histogram: HistogramBucket[];
+};
 /** User preferences supported by both the native menu and React UI. */
 type Settings = {
   theme: "system" | "light" | "dark";
@@ -52,6 +59,8 @@ type Settings = {
 type TimeRange = { key: string; label: string; from: string; to: string };
 /** Persisted query history item returned by the backend. */
 type QueryHistoryItem = { query: string; updatedAt: string };
+/** Provider-level parent and its available logstores. */
+type LogGroup = { name: string; logstores: string[] };
 
 /** Serializes a Date for the vendor-neutral query contract. */
 const iso = (date: Date) => date.toISOString();
@@ -197,11 +206,14 @@ function App() {
   const [savedProfileId, setSavedProfileId] = useState(0);
   const [savedSearch, setSavedSearch] = useState("");
   const [savedPage, setSavedPage] = useState(1);
+  const [adapterPickerOpen, setAdapterPickerOpen] = useState(false);
   const [configSwitcherOpen, setConfigSwitcherOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [profileId, setProfileId] = useState(0);
-  const [logstores, setLogstores] = useState<string[]>([]);
+  const [logGroups, setLogGroups] = useState<LogGroup[]>([]);
+  const [project, setProject] = useState("");
   const [logstore, setLogstore] = useState("");
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [logSidebarCollapsed, setLogSidebarCollapsed] = useState(false);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -232,6 +244,7 @@ function App() {
   const timePickerRef = useRef<HTMLDivElement>(null);
   const queryEditorRef = useRef<HTMLDivElement>(null);
   const queryTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const adapterPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Bootstrap()
@@ -318,6 +331,15 @@ function App() {
     document.addEventListener("pointerdown", close, true);
     return () => document.removeEventListener("pointerdown", close, true);
   }, [queryAssistOpen]);
+  useEffect(() => {
+    if (!adapterPickerOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!adapterPickerRef.current?.contains(event.target as Node))
+        setAdapterPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", close, true);
+    return () => document.removeEventListener("pointerdown", close, true);
+  }, [adapterPickerOpen]);
   const selected = useMemo(
     () => adapters.find((a) => a.id === form.adapterId),
     [adapters, form.adapterId],
@@ -400,30 +422,27 @@ function App() {
     };
   };
   const histogram = useMemo(() => {
-    const bucketCount = 18;
-    const counts = Array(bucketCount).fill(0) as number[];
     const start = new Date(timeRange.from).getTime();
     const end = new Date(timeRange.to).getTime();
     const span = Math.max(1, end - start);
-    for (const entry of result?.entries || []) {
-      const timestamp = new Date(entry.time).getTime();
-      if (timestamp < start || timestamp > end) continue;
-      const index = Math.min(
-        bucketCount - 1,
-        Math.floor(((timestamp - start) / span) * bucketCount),
-      );
-      counts[index]++;
-    }
+    const buckets = result?.histogram?.length
+      ? result.histogram
+      : Array.from({ length: 18 }, (_, index) => ({
+          from: new Date(start + (span * index) / 18).toISOString(),
+          to: new Date(start + (span * (index + 1)) / 18).toISOString(),
+          count: 0,
+        }));
+    const counts = buckets.map((bucket) => bucket.count);
     const max = Math.max(1, ...counts);
-    const labels = counts.map((_, index) => {
-      if (index % 3 !== 0 && index !== bucketCount - 1) return "";
+    const labels = buckets.map((bucket, index) => {
+      if (index % 3 !== 0 && index !== buckets.length - 1) return "";
       return axisLabel(
-        new Date(start + (span * index) / bucketCount),
+        new Date(bucket.from),
         span,
         effectiveSettings.language,
       );
     });
-    return { counts, max, labels };
+    return { buckets, counts, max, labels };
   }, [result, timeRange, effectiveSettings.language]);
   const fieldSuggestions = useMemo(() => {
     const paths = new Set<string>(["level", "message"]);
@@ -476,26 +495,29 @@ function App() {
     }
   }
   /** Applies a backend session and eagerly loads its first logstore. */
-  async function applySession(session: {
-    profileId: number;
-    logstores: string[];
-  }) {
-    const stores = session.logstores || [];
-    const firstStore = stores[0] || "";
+  async function applySession(session: { profileId: number; groups: LogGroup[] }) {
+    const groups = session.groups || [];
+    const firstGroup = groups.find((group) => group.logstores.length > 0);
+    const firstProject = firstGroup?.name || "";
+    const firstStore = firstGroup?.logstores[0] || "";
     setProfileId(session.profileId);
-    setLogstores(stores);
+    setLogGroups(groups);
+    setProject(firstProject);
     setLogstore(firstStore);
+    setExpandedProjects(new Set(firstProject ? [firstProject] : []));
     setLogSidebarCollapsed(false);
     setQuery("");
     setResult(null);
     if (firstStore)
-      await executeQuery(session.profileId, firstStore, "", timeRange);
+      await executeQuery(session.profileId, firstProject, firstStore, "", timeRange);
   }
   /** Clears connection-specific UI state and returns to the connection home. */
   function resetWorkspace() {
     setProfileId(0);
-    setLogstores([]);
+    setLogGroups([]);
+    setProject("");
     setLogstore("");
+    setExpandedProjects(new Set());
     setResult(null);
     setCurrentPage(1);
     setError("");
@@ -503,6 +525,7 @@ function App() {
   /** Executes a paginated query while keeping loading and error state consistent. */
   async function executeQuery(
     targetProfileID: number,
+    targetProject: string,
     targetLogstore: string,
     queryValue: string,
     range: TimeRange,
@@ -516,6 +539,7 @@ function App() {
       setResult(
         (await Query({
           profileId: targetProfileID,
+          group: targetProject,
           logstore: targetLogstore,
           query: queryValue,
           from: range.from,
@@ -534,7 +558,7 @@ function App() {
   /** Runs the current editor text against the active logstore. */
   async function search() {
     setQueryAssistOpen(false);
-    await executeQuery(profileId, logstore, query, timeRange);
+    await executeQuery(profileId, project, logstore, query, timeRange);
   }
   /** Opens query completion and loads persisted history for the active scope. */
   async function openQueryAssist() {
@@ -542,7 +566,7 @@ function App() {
     setSuggestionIndex(0);
     try {
       setQueryHistory(
-        (await LoadQueryHistory(profileId, logstore)) as QueryHistoryItem[],
+        (await LoadQueryHistory(profileId, project, logstore)) as QueryHistoryItem[],
       );
     } catch {
       setQueryHistory([]);
@@ -569,7 +593,7 @@ function App() {
   function runHistory(item: QueryHistoryItem) {
     setQuery(item.query);
     setQueryAssistOpen(false);
-    void executeQuery(profileId, logstore, item.query, timeRange);
+    void executeQuery(profileId, project, logstore, item.query, timeRange);
   }
   /** Implements completion navigation, query execution, and explicit line breaks. */
   function handleQueryKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -622,7 +646,7 @@ function App() {
       .filter(Boolean)
       .join(" AND ");
     setQuery(next);
-    void executeQuery(profileId, logstore, next, timeRange);
+    void executeQuery(profileId, project, logstore, next, timeRange);
   }
   /** Inserts a newline at the current selection without losing editor focus. */
   function insertQueryLineBreak(element: HTMLTextAreaElement) {
@@ -637,6 +661,7 @@ function App() {
   function changePage(nextPage: number) {
     void executeQuery(
       profileId,
+      project,
       logstore,
       query,
       timeRange,
@@ -647,13 +672,14 @@ function App() {
   /** Applies a new page size and resets pagination to the first page. */
   function changePageSize(nextPageSize: number) {
     setPageSize(nextPageSize);
-    void executeQuery(profileId, logstore, query, timeRange, 1, nextPageSize);
+    void executeQuery(profileId, project, logstore, query, timeRange, 1, nextPageSize);
   }
   /** Selects a logstore and refreshes its result set. */
-  function selectLogstore(nextLogstore: string) {
+  function selectLogstore(nextProject: string, nextLogstore: string) {
+    setProject(nextProject);
     setLogstore(nextLogstore);
     setResult(null);
-    void executeQuery(profileId, nextLogstore, query, timeRange);
+    void executeQuery(profileId, nextProject, nextLogstore, query, timeRange);
   }
   /** Switches directly between saved profiles from the workspace sidebar. */
   async function switchProfile(nextProfileID: number) {
@@ -849,20 +875,15 @@ function App() {
       ].slice(0, 5),
     );
     if (profileId && logstore)
-      void executeQuery(profileId, logstore, query, next);
+      void executeQuery(profileId, project, logstore, query, next);
     if (close) setTimePickerOpen(false);
   }
   /** Converts a histogram index into its exact query interval. */
   function histogramBucketRange(index: number) {
-    const bucketCount = histogram.counts.length;
-    const start = new Date(timeRange.from).getTime();
-    const end = new Date(timeRange.to).getTime();
-    const bucketSize = (end - start) / bucketCount;
+    const bucket = histogram.buckets[index];
     return {
-      from: new Date(start + bucketSize * index),
-      to: new Date(
-        index === bucketCount - 1 ? end : start + bucketSize * (index + 1),
-      ),
+      from: new Date(bucket.from),
+      to: new Date(bucket.to),
     };
   }
   /** Drills into the time interval represented by one histogram bucket. */
@@ -919,20 +940,55 @@ function App() {
           <aside className="sidebar">
             <div className="section-title">
               <span>{t.logstores}</span>
-              <span className="count">{logstores.length}</span>
+              <span className="count">
+                {logGroups.reduce((total, group) => total + group.logstores.length, 0)}
+              </span>
             </div>
-            {logstores.length ? (
-              <nav aria-label={t.logstores}>
-                {logstores.map((x) => (
-                  <button
-                    key={x}
-                    className={x === logstore ? "store active" : "store"}
-                    onClick={() => selectLogstore(x)}
-                  >
-                    <span className="store-icon">▤</span>
-                    {x}
-                  </button>
-                ))}
+            {logGroups.length ? (
+              <nav className="logstore-tree" aria-label={t.logstores}>
+                {logGroups.map((group) => {
+                  const expanded = expandedProjects.has(group.name);
+                  return (
+                    <div className="log-group" key={group.name}>
+                      <button
+                        type="button"
+                        className="project-node"
+                        aria-expanded={expanded}
+                        onClick={() =>
+                          setExpandedProjects((current) => {
+                            const next = new Set(current);
+                            if (next.has(group.name)) next.delete(group.name);
+                            else next.add(group.name);
+                            return next;
+                          })
+                        }
+                      >
+                        <svg className={expanded ? "project-chevron expanded" : "project-chevron"} viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="m6 3.5 4.5 4.5L6 12.5" />
+                        </svg>
+                        <svg className="project-icon" viewBox="0 0 18 18" aria-hidden="true">
+                          <path d="M2.5 4.5h5l1.5 2h6.5v7H2.5z" />
+                        </svg>
+                        <span title={group.name}>{group.name}</span>
+                        <small>{group.logstores.length}</small>
+                      </button>
+                      {expanded && (
+                        <div className="log-group-children" role="group">
+                          {group.logstores.map((item) => (
+                            <button
+                              key={`${group.name}\u0000${item}`}
+                              className={group.name === project && item === logstore ? "store tree-store active" : "store tree-store"}
+                              onClick={() => selectLogstore(group.name, item)}
+                            >
+                              <span className="store-icon">▤</span>
+                              <span title={item}>{item}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </nav>
             ) : (
               <div className="empty">
@@ -1219,26 +1275,66 @@ function App() {
                 ) : (
                   <>
                     <div className="form-grid">
-                      <label className="wide">
-                        {t.choose}
-                        <select
-                          value={form.adapterId}
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            setForm({
-                              ...form,
-                              adapterId: id,
-                            });
+                      <div className="wide adapter-field" ref={adapterPickerRef}>
+                        <span className="field-label">{t.choose}</span>
+                        <button
+                          type="button"
+                          className={adapterPickerOpen ? "adapter-trigger open" : "adapter-trigger"}
+                          onClick={() => setAdapterPickerOpen((open) => !open)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") setAdapterPickerOpen(false);
                           }}
+                          aria-haspopup="listbox"
+                          aria-expanded={adapterPickerOpen}
                         >
-                          {adapters.map((a) => (
-                            <option key={a.id} value={a.id} disabled={!a.ready}>
-                              {adapterText(a).name}
-                              {!a.ready ? ` · ${t.pending}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                          <span className="adapter-symbol" aria-hidden="true">
+                            <svg viewBox="0 0 20 20">
+                              <path d="M6.2 15.2h8a3.3 3.3 0 0 0 .5-6.6A5 5 0 0 0 5.1 7a4.1 4.1 0 0 0 1.1 8.2Z" />
+                            </svg>
+                          </span>
+                          <span className="adapter-trigger-copy">
+                            <strong>{adapterText(selected).name}</strong>
+                            <small>{selected?.description || selected?.id}</small>
+                          </span>
+                          <svg className="adapter-arrow" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="m4 6 4 4 4-4" />
+                          </svg>
+                        </button>
+                        {adapterPickerOpen && (
+                          <div className="adapter-options" role="listbox" aria-label={t.choose}>
+                            {adapters.map((adapter) => (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={adapter.id === form.adapterId}
+                                className={adapter.id === form.adapterId ? "selected" : ""}
+                                disabled={!adapter.ready}
+                                key={adapter.id}
+                                onClick={() => {
+                                  setForm({ ...form, adapterId: adapter.id });
+                                  setAdapterPickerOpen(false);
+                                }}
+                              >
+                                <span className="adapter-symbol" aria-hidden="true">
+                                  <svg viewBox="0 0 20 20">
+                                    <path d="M6.2 15.2h8a3.3 3.3 0 0 0 .5-6.6A5 5 0 0 0 5.1 7a4.1 4.1 0 0 0 1.1 8.2Z" />
+                                  </svg>
+                                </span>
+                                <span>
+                                  <strong>{adapterText(adapter).name}</strong>
+                                  <small>{adapter.description || adapter.id}</small>
+                                </span>
+                                {!adapter.ready && <em>{t.pending}</em>}
+                                {adapter.id === form.adapterId && adapter.ready && (
+                                  <svg className="adapter-check" viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="m3.5 8 3 3 6-6" />
+                                  </svg>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <label>
                         {t.connectionAlias}
                         <input
@@ -1261,6 +1357,8 @@ function App() {
                           placeholder={
                             form.adapterId === "tencent-cls"
                               ? "https://cls.tencentcloudapi.com"
+                              : form.adapterId === "aws-cloudwatch"
+                                ? "https://logs.us-east-1.amazonaws.com"
                               : "https://cn-hangzhou.log.aliyuncs.com"
                           }
                         />
@@ -1288,19 +1386,8 @@ function App() {
                           autoComplete="new-password"
                         />
                       </label>
-                      {form.adapterId !== "tencent-cls" && (
-                        <label>
-                          {t.project}
-                          <input
-                            value={form.project}
-                            onChange={(e) =>
-                              setForm({ ...form, project: e.target.value })
-                            }
-                            required={form.adapterId === "aliyun-sls"}
-                          />
-                        </label>
-                      )}
-                      {form.adapterId === "tencent-cls" && (
+                      {(form.adapterId === "tencent-cls" ||
+                        form.adapterId === "aws-cloudwatch") && (
                         <label>
                           {t.region}
                           <input
@@ -1308,7 +1395,11 @@ function App() {
                             onChange={(e) =>
                               setForm({ ...form, region: e.target.value })
                             }
-                            placeholder="ap-guangzhou"
+                            placeholder={
+                              form.adapterId === "aws-cloudwatch"
+                                ? "us-east-1"
+                                : "ap-guangzhou"
+                            }
                             required
                           />
                         </label>
@@ -1382,6 +1473,8 @@ function App() {
                     </svg>
                   </button>
                   <span className="breadcrumb">{t.logstores}</span>
+                  <span className="breadcrumb-separator">/</span>
+                  <span className="breadcrumb-value" title={project}>{project}</span>
                   <span className="breadcrumb-separator">/</span>
                   <h1 title={logstore}>{logstore}</h1>
                 </div>
@@ -1703,7 +1796,12 @@ function App() {
                     <span>{histogram.max}</span>
                     <span>0</span>
                   </div>
-                  <div className="histogram-plot">
+                  <div
+                    className="histogram-plot"
+                    style={{
+                      gridTemplateColumns: `repeat(${histogram.counts.length}, minmax(0, 1fr))`,
+                    }}
+                  >
                     {histogram.counts.map((count, index) => (
                       <button
                         type="button"
@@ -1726,7 +1824,7 @@ function App() {
                     ))}
                     {hoveredBucket !== null && histogramTooltipRange && (
                       <div
-                        className={`histogram-tooltip ${hoveredBucket < 3 ? "align-left" : hoveredBucket > 14 ? "align-right" : ""}`}
+                        className={`histogram-tooltip ${hoveredBucket < 3 ? "align-left" : hoveredBucket >= histogram.counts.length - 3 ? "align-right" : ""}`}
                         style={{
                           left: `${((hoveredBucket + 0.5) / histogram.counts.length) * 100}%`,
                         }}
@@ -1786,6 +1884,7 @@ function App() {
                 </div>
               )}
               <LogResults
+                scopeKey={`${profileId}:${project}:${logstore}`}
                 entries={result?.entries || []}
                 total={result?.total || 0}
                 locale={effectiveSettings.language}

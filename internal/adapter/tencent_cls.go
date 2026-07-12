@@ -51,7 +51,7 @@ func (a *tencentCLSAdapter) Info() domain.AdapterInfo {
 }
 
 // Connect validates credentials by listing every log Topic in the configured region.
-func (a *tencentCLSAdapter) Connect(ctx context.Context, input domain.ConnectionInput) ([]string, error) {
+func (a *tencentCLSAdapter) Connect(ctx context.Context, input domain.ConnectionInput) ([]domain.LogGroup, error) {
 	client, err := a.client(ctx, input)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (a *tencentCLSAdapter) Connect(ctx context.Context, input domain.Connection
 	a.mu.Lock()
 	a.topics[tencentConnectionKey(input)] = mapping
 	a.mu.Unlock()
-	return labels, nil
+	return []domain.LogGroup{{Name: strings.TrimSpace(input.Region), Logstores: labels}}, nil
 }
 
 // Query searches one CLS Topic and normalizes its result page.
@@ -109,13 +109,17 @@ func (a *tencentCLSAdapter) Query(
 	}
 	entries := normalizeTencentResults(response.Response.Results)
 	total := (page-1)*limit + len(entries)
-	if count, countErr := countTencentLogs(ctx, client, topicID, expression, from, to); countErr == nil {
+	buckets, histogramErr := queryTencentHistogram(ctx, client, topicID, expression, from, to)
+	if histogramErr == nil {
+		total = histogramTotal(buckets)
+	} else if count, countErr := countTencentLogs(ctx, client, topicID, expression, from, to); countErr == nil {
 		total = count
 	} else if response.Response.ListOver != nil && !*response.Response.ListOver {
 		total++
 	}
 	return domain.QueryResult{
-		TookMS: time.Since(started).Milliseconds(), Total: total, Entries: entries,
+		TookMS: time.Since(started).Milliseconds(), Total: total,
+		Entries: entries, Histogram: buckets,
 	}, nil
 }
 
@@ -249,6 +253,122 @@ func newTencentSearchRequest(
 	request.SamplingRate = float64Pointer(1)
 	request.UseNewAnalysis = boolPointer(true)
 	return request
+}
+
+// queryTencentHistogram uses CLS time_series to return complete, zero-filled provider buckets.
+func queryTencentHistogram(
+	ctx context.Context,
+	client tencentCLSClient,
+	topicID, expression string,
+	from, to time.Time,
+) ([]domain.HistogramBucket, error) {
+	search, _, _ := strings.Cut(expression, "|")
+	search = strings.TrimSpace(search)
+	if search == "" {
+		search = "*"
+	}
+	interval, duration := tencentHistogramInterval(to.Sub(from), 18)
+	histogramQuery := fmt.Sprintf(
+		"%s | SELECT time_series(__TIMESTAMP__, '%s', '%%Y-%%m-%%dT%%H:%%i:%%s+08:00', '0') "+
+			"AS loggopher_time, count(*) AS loggopher_count GROUP BY loggopher_time "+
+			"ORDER BY loggopher_time LIMIT 1000",
+		search,
+		interval,
+	)
+	request := newTencentSearchRequest(topicID, histogramQuery, from, to, 1, 0)
+	response, err := client.SearchLogWithContext(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Response == nil {
+		return nil, errors.New("empty CLS histogram response")
+	}
+	buckets := make([]domain.HistogramBucket, 0, len(response.Response.AnalysisRecords))
+	for _, raw := range response.Response.AnalysisRecords {
+		if raw == nil {
+			continue
+		}
+		var record map[string]any
+		if json.Unmarshal([]byte(*raw), &record) != nil {
+			continue
+		}
+		bucketFrom, timeOK := parseTencentHistogramTime(record["loggopher_time"])
+		count, countOK := int64Value(record["loggopher_count"])
+		if !timeOK || !countOK {
+			continue
+		}
+		bucketTo := bucketFrom.Add(duration)
+		if bucketFrom.Before(from) {
+			bucketFrom = from
+		}
+		if bucketTo.After(to) {
+			bucketTo = to
+		}
+		buckets = append(buckets, domain.HistogramBucket{
+			From: bucketFrom.UTC().Format(time.RFC3339Nano),
+			To:   bucketTo.UTC().Format(time.RFC3339Nano), Count: count,
+		})
+	}
+	if len(buckets) == 0 {
+		return nil, errors.New("CLS histogram response contains no valid buckets")
+	}
+	sort.Slice(buckets, func(left, right int) bool { return buckets[left].From < buckets[right].From })
+	return buckets, nil
+}
+
+// tencentHistogramInterval chooses approximately the requested number of readable buckets.
+func tencentHistogramInterval(span time.Duration, targetBuckets int) (string, time.Duration) {
+	if targetBuckets <= 0 {
+		targetBuckets = 18
+	}
+	target := time.Duration((int64(span) + int64(targetBuckets) - 1) / int64(targetBuckets))
+	units := []struct {
+		suffix string
+		value  time.Duration
+	}{
+		{suffix: "s", value: time.Second},
+		{suffix: "m", value: time.Minute},
+		{suffix: "h", value: time.Hour},
+		{suffix: "d", value: 24 * time.Hour},
+	}
+	selected := units[0]
+	for _, unit := range units {
+		selected = unit
+		if target <= unit.value*60 || unit.suffix == "d" {
+			break
+		}
+	}
+	count := (target + selected.value - 1) / selected.value
+	if count < 1 {
+		count = 1
+	}
+	duration := count * selected.value
+	return fmt.Sprintf("%d%s", count, selected.suffix), duration
+}
+
+// parseTencentHistogramTime accepts the explicit RFC3339 output and numeric SDK variants.
+func parseTencentHistogramTime(value any) (time.Time, bool) {
+	switch typed := value.(type) {
+	case string:
+		if parsed, err := time.Parse(time.RFC3339Nano, typed); err == nil {
+			return parsed, true
+		}
+		if milliseconds, err := strconv.ParseInt(typed, 10, 64); err == nil {
+			return time.UnixMilli(milliseconds), true
+		}
+	case float64:
+		return time.UnixMilli(int64(typed)), true
+	}
+	return time.Time{}, false
+}
+
+// histogramTotal sums provider buckets without consulting the current result page.
+func histogramTotal(buckets []domain.HistogramBucket) int {
+	var total int64
+	for _, bucket := range buckets {
+		total += bucket.Count
+	}
+	return int(total)
 }
 
 // countTencentLogs executes an exact SQL count using the same CQL search condition.
@@ -387,11 +507,16 @@ func addTencentMetadata(fields map[string]string, key string, value *string) {
 }
 
 func integerValue(value any) (int, bool) {
+	parsed, ok := int64Value(value)
+	return int(parsed), ok
+}
+
+func int64Value(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case float64:
-		return int(typed), true
+		return int64(typed), true
 	case string:
-		parsed, err := strconv.Atoi(typed)
+		parsed, err := strconv.ParseInt(typed, 10, 64)
 		return parsed, err == nil
 	default:
 		return 0, false

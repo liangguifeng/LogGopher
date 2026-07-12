@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 // fakeAliyunClient captures SDK requests without contacting Alibaba Cloud.
 type fakeAliyunClient struct {
+	projects         []sls.LogProject
+	projectOffsets   []int
 	logstores        []string
 	listErr          error
 	logs             *sls.GetLogsResponse
@@ -27,6 +30,19 @@ type fakeAliyunClient struct {
 	histogramRequest *sls.GetHistogramRequest
 	project          string
 	logstore         string
+}
+
+func (client *fakeAliyunClient) ListProjectV2(offset, size int) ([]sls.LogProject, int, int, error) {
+	client.projectOffsets = append(client.projectOffsets, offset)
+	projects := client.projects
+	if projects == nil {
+		projects = []sls.LogProject{{Name: "project-a"}}
+	}
+	if offset >= len(projects) {
+		return nil, 0, len(projects), nil
+	}
+	end := min(offset+size, len(projects))
+	return projects[offset:end], end - offset, len(projects), nil
 }
 
 func (client *fakeAliyunClient) ListLogStore(project string) ([]string, error) {
@@ -52,7 +68,7 @@ func (client *fakeAliyunClient) GetHistogramsToCompletedV2(project, logstore str
 func aliyunTestInput() domain.ConnectionInput {
 	return domain.ConnectionInput{
 		AdapterID: "aliyun-sls", Name: "production", Endpoint: "https://cn-hangzhou.log.aliyuncs.com",
-		AccessKey: "test-ak", SecretKey: "test-sk", Project: "project-a",
+		AccessKey: "test-ak", SecretKey: "test-sk",
 	}
 }
 
@@ -60,12 +76,30 @@ func TestAliyunSLSConnectListsLogstores(t *testing.T) {
 	fake := &fakeAliyunClient{logstores: []string{"access", "application"}}
 	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) { return fake, nil }}
 
-	logstores, err := adapter.Connect(context.Background(), aliyunTestInput())
+	groups, err := adapter.Connect(context.Background(), aliyunTestInput())
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	if fake.project != "project-a" || len(logstores) != 2 || logstores[0] != "access" {
-		t.Fatalf("Connect() = %#v, project = %q", logstores, fake.project)
+	if fake.project != "project-a" || len(groups) != 1 || len(groups[0].Logstores) != 2 || groups[0].Logstores[0] != "access" {
+		t.Fatalf("Connect() = %#v, project = %q", groups, fake.project)
+	}
+}
+
+func TestListAllAliyunProjectsPaginatesAndSorts(t *testing.T) {
+	projects := make([]sls.LogProject, 501)
+	for index := range projects {
+		projects[index].Name = fmt.Sprintf("project-%03d", 500-index)
+	}
+	fake := &fakeAliyunClient{projects: projects}
+	names, err := listAllAliyunProjects(context.Background(), fake)
+	if err != nil {
+		t.Fatalf("listAllAliyunProjects() error = %v", err)
+	}
+	if len(names) != 501 || names[0] != "project-000" || names[500] != "project-500" {
+		t.Fatalf("projects = %#v", names)
+	}
+	if len(fake.projectOffsets) != 2 || fake.projectOffsets[0] != 0 || fake.projectOffsets[1] != 500 {
+		t.Fatalf("offsets = %#v", fake.projectOffsets)
 	}
 }
 
@@ -75,11 +109,14 @@ func TestAliyunSLSQueryMapsPaginationAndNormalizesLogs(t *testing.T) {
 			"__time__": "1783818000", "__time_ns_part__": "123000000", "LEVEL": "warn",
 			"message": "upstream slow", "service": "gateway", "status": "429",
 		}}},
-		histogram: &sls.GetHistogramsResponse{Count: 47},
+		histogram: &sls.GetHistogramsResponse{Count: 47, Histograms: []sls.SingleHistogram{
+			{From: 1783814400, To: 1783816200, Count: 20},
+			{From: 1783816200, To: 1783818000, Count: 27},
+		}},
 	}
 	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) { return fake, nil }}
 	result, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
-		Logstore: "access", Query: " status:429 | select count(*) ",
+		Group: "project-a", Logstore: "access", Query: " status:429 | select count(*) ",
 		From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 2, Limit: 20,
 	})
 	if err != nil {
@@ -94,8 +131,11 @@ func TestAliyunSLSQueryMapsPaginationAndNormalizesLogs(t *testing.T) {
 	if fake.histogramRequest.Query != "status:429" {
 		t.Fatalf("histogram query = %q", fake.histogramRequest.Query)
 	}
-	if result.Total != 47 || len(result.Entries) != 1 {
+	if result.Total != 47 || len(result.Entries) != 1 || len(result.Histogram) != 2 {
 		t.Fatalf("Query() = %#v", result)
+	}
+	if result.Histogram[0].From != "2026-07-12T00:00:00Z" || result.Histogram[1].Count != 27 {
+		t.Fatalf("normalized histogram = %#v", result.Histogram)
 	}
 	entry := result.Entries[0]
 	if entry.Level != "WARN" || entry.Message != "upstream slow" || entry.Fields["service"] != "gateway" {
@@ -116,7 +156,7 @@ func TestAliyunSLSQueryUsesWildcardAndCapsPageSize(t *testing.T) {
 	}
 	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) { return fake, nil }}
 	_, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
-		Logstore: "access", From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 500,
+		Group: "project-a", Logstore: "access", From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 500,
 	})
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
@@ -141,7 +181,7 @@ func TestAliyunSLSQueryFallsBackForUnindexedFilter(t *testing.T) {
 		return fake, nil
 	}}
 	_, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
-		Logstore: "access", Query: `service:"gateway" AND request:"POST /orders:submit"`,
+		Group: "project-a", Logstore: "access", Query: `service:"gateway" AND request:"POST /orders:submit"`,
 		From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 20,
 	})
 	if err != nil {

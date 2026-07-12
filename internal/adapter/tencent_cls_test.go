@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,17 +75,17 @@ func TestTencentCLSConnectPaginatesAndCachesTopics(t *testing.T) {
 		},
 		topics: make(map[string]map[string]string),
 	}
-	labels, err := adapter.Connect(context.Background(), tencentTestInput())
+	groups, err := adapter.Connect(context.Background(), tencentTestInput())
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
-	if len(labels) != 2 || labels[0] != "application · topic-11" || labels[1] != "application · topic-22" {
-		t.Fatalf("Connect() labels = %#v", labels)
+	if len(groups) != 1 || len(groups[0].Logstores) != 2 || groups[0].Logstores[0] != "application · topic-11" || groups[0].Logstores[1] != "application · topic-22" {
+		t.Fatalf("Connect() groups = %#v", groups)
 	}
 	if len(client.describeRequests) != 2 || *client.describeRequests[1].Offset != 100 {
 		t.Fatalf("DescribeTopics requests = %#v", client.describeRequests)
 	}
-	if topicID, ok := adapter.topicID(tencentTestInput(), labels[1]); !ok || topicID != "topic-22222222" {
+	if topicID, ok := adapter.topicID(tencentTestInput(), groups[0].Logstores[1]); !ok || topicID != "topic-22222222" {
 		t.Fatalf("cached Topic = %q, %v", topicID, ok)
 	}
 }
@@ -102,8 +103,11 @@ func TestTencentCLSQueryMapsRequestAndNormalizesLogs(t *testing.T) {
 			}},
 		}},
 		{Response: &cls.SearchLogResponseParams{
-			Analysis:        boolPointer(true),
-			AnalysisRecords: []*string{stringPointer(`{"loggopher_total":"47"}`)},
+			Analysis: boolPointer(true),
+			AnalysisRecords: []*string{
+				stringPointer(`{"loggopher_time":"2026-07-12T08:00:00+08:00","loggopher_count":"20"}`),
+				stringPointer(`{"loggopher_time":"2026-07-12T08:04:00+08:00","loggopher_count":"27"}`),
+			},
 		}},
 	}}
 	input := tencentTestInput()
@@ -131,11 +135,15 @@ func TestTencentCLSQueryMapsRequestAndNormalizesLogs(t *testing.T) {
 		t.Fatalf("SearchLog range = %d..%d", *request.From, *request.To)
 	}
 	if len(client.searchRequests) != 2 ||
-		*client.searchRequests[1].QueryString != "level:warn | SELECT count(*) AS loggopher_total" {
-		t.Fatalf("count request = %#v", client.searchRequests)
+		!strings.Contains(*client.searchRequests[1].QueryString, "time_series(__TIMESTAMP__, '4m'") {
+		t.Fatalf("histogram request = %#v", client.searchRequests)
 	}
-	if result.Total != 47 || len(result.Entries) != 1 {
+	if result.Total != 47 || len(result.Entries) != 1 || len(result.Histogram) != 2 {
 		t.Fatalf("Query() = %#v", result)
+	}
+	if result.Histogram[0].From != "2026-07-12T00:00:00Z" ||
+		result.Histogram[0].To != "2026-07-12T00:04:00Z" || result.Histogram[1].Count != 27 {
+		t.Fatalf("normalized histogram = %#v", result.Histogram)
 	}
 	entry := result.Entries[0]
 	if entry.Time != "2026-07-12T01:02:03.456Z" || entry.Level != "WARN" ||
