@@ -12,21 +12,36 @@ import (
 	"github.com/liangguifeng/LogGopher/internal/adapter"
 	"github.com/liangguifeng/LogGopher/internal/application"
 	"github.com/liangguifeng/LogGopher/internal/credential"
+	"github.com/liangguifeng/LogGopher/internal/logging"
 	"github.com/liangguifeng/LogGopher/internal/storage"
+	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
 )
 
+// assets contains the production frontend bundled into the desktop binary.
+//
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
-	store, err := storage.Open()
+	logManager, err := logging.New()
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := NewApp(application.NewService(store, adapter.DefaultRegistry(), credential.NewKeyringStore()))
+	defer logManager.Close()
+	appLogger := logManager.Logger()
+	appLogger.Info("application starting", "log_directory", logManager.Directory())
+
+	store, err := storage.Open()
+	if err != nil {
+		appLogger.Error("open storage", "error", err)
+		return
+	}
+	app := NewApp(application.NewService(store, adapter.DefaultRegistry(), credential.NewKeyringStore()), appLogger, logManager.Directory())
 	settings, err := store.Settings()
 	if err != nil {
-		log.Fatal(err)
+		appLogger.Error("load settings", "error", err)
+		_ = store.Close()
+		return
 	}
 	appMenu := newApplicationMenu(app, settings.Language)
 
@@ -40,7 +55,10 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		Menu: appMenu,
+		Menu:               appMenu,
+		Logger:             logManager.WailsLogger(),
+		LogLevel:           wailslogger.INFO,
+		LogLevelProduction: wailslogger.INFO,
 		Mac: &mac.Options{
 			TitleBar:    mac.TitleBarDefault(),
 			DisableZoom: false,
@@ -55,6 +73,8 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		appLogger.Error("application stopped with error", "error", err)
+		return
 	}
+	appLogger.Info("application stopped")
 }

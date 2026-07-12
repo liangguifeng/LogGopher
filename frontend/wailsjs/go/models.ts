@@ -1,15 +1,15 @@
 export namespace domain {
-	
+
 	export class AdapterInfo {
 	    id: string;
 	    name: string;
 	    description: string;
 	    ready: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AdapterInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -22,11 +22,11 @@ export namespace domain {
 	    theme: string;
 	    language: string;
 	    density: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
@@ -41,11 +41,11 @@ export namespace domain {
 	    endpoint: string;
 	    project: string;
 	    region: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Profile(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -60,18 +60,18 @@ export namespace domain {
 	    adapters: AdapterInfo[];
 	    profiles: Profile[];
 	    settings: Settings;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Bootstrap(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.adapters = this.convertValues(source["adapters"], AdapterInfo);
 	        this.profiles = this.convertValues(source["profiles"], Profile);
 	        this.settings = this.convertValues(source["settings"], Settings);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -98,11 +98,11 @@ export namespace domain {
 	    secretKey: string;
 	    project: string;
 	    region: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ConnectionInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.adapterId = source["adapterId"];
@@ -119,11 +119,11 @@ export namespace domain {
 	    level: string;
 	    message: string;
 	    fields: Record<string, string>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new LogEntry(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.time = source["time"];
@@ -132,7 +132,21 @@ export namespace domain {
 	        this.fields = source["fields"];
 	    }
 	}
-	
+
+	export class QueryHistoryItem {
+	    query: string;
+	    updatedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new QueryHistoryItem(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.query = source["query"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class QueryInput {
 	    profileId: number;
 	    logstore: string;
@@ -141,11 +155,11 @@ export namespace domain {
 	    to: string;
 	    page: number;
 	    limit: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new QueryInput(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.profileId = source["profileId"];
@@ -161,18 +175,18 @@ export namespace domain {
 	    tookMs: number;
 	    total: number;
 	    entries: LogEntry[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new QueryResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tookMs = source["tookMs"];
 	        this.total = source["total"];
 	        this.entries = this.convertValues(source["entries"], LogEntry);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -194,11 +208,11 @@ export namespace domain {
 	export class Session {
 	    profileId: number;
 	    logstores: string[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Session(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.profileId = source["profileId"];

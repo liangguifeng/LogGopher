@@ -10,4 +10,6 @@ export function ConnectSaved(arg1:number):Promise<domain.Session>;
 
 export function Query(arg1:domain.QueryInput):Promise<domain.QueryResult>;
 
+export function QueryHistory(arg1:number,arg2:string):Promise<Array<domain.QueryHistoryItem>>;
+
 export function SaveSettings(arg1:domain.Settings):Promise<void>;
