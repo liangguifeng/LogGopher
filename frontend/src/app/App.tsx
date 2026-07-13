@@ -678,8 +678,11 @@ function App() {
   function selectLogstore(nextProject: string, nextLogstore: string) {
     setProject(nextProject);
     setLogstore(nextLogstore);
+    setQuery("");
+    setQueryAssistOpen(false);
+    setQueryFavorite(false);
     setResult(null);
-    void executeQuery(profileId, nextProject, nextLogstore, query, timeRange);
+    void executeQuery(profileId, nextProject, nextLogstore, "", timeRange);
   }
   /** Switches directly between saved profiles from the workspace sidebar. */
   async function switchProfile(nextProfileID: number) {

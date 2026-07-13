@@ -32,7 +32,8 @@ describe('App connection workflow',()=>{
   beforeEach(()=>{
     vi.clearAllMocks();
     api.Bootstrap.mockResolvedValue(bootstrap);
-    api.Connect.mockResolvedValue({profileId:7,groups:[]});
+    api.Connect.mockResolvedValue({profileId:7,groups:[{name:'us-east-1',logstores:['application','audit']}]});
+    api.Query.mockResolvedValue({tookMs:1,total:0,entries:[],histogram:[]});
     api.QueryHistory.mockResolvedValue([]);
     api.SaveSettings.mockResolvedValue(undefined);
   });
@@ -55,6 +56,14 @@ describe('App connection workflow',()=>{
 
     await waitFor(()=>expect(api.Connect).toHaveBeenCalledWith(expect.objectContaining({
       adapterId:'aws-cloudwatch',name:'AWS production',region:'us-east-1',
+    })));
+
+    const editor=await screen.findByPlaceholderText('输入查询语句、SQL、SPL');
+    await user.type(editor,'level:error');
+    await user.click(screen.getByRole('button',{name:/audit/}));
+    expect(editor).toHaveValue('');
+    await waitFor(()=>expect(api.Query).toHaveBeenLastCalledWith(expect.objectContaining({
+      group:'us-east-1',logstore:'audit',query:'',
     })));
   });
 
