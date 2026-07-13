@@ -14,9 +14,11 @@ import {
   Bootstrap,
   Connect,
   ConnectSaved,
+  DeleteProfile,
   Query,
   QueryHistory as LoadQueryHistory,
   SaveSettings,
+  UpdateProfile,
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import DateTimeField from "../components/date-time-picker/DateTimeField";
@@ -149,6 +151,14 @@ const messages = {
     endpoint: "访问端点",
     accessKey: "Access Key",
     secretKey: "Secret Key",
+    editConnection: "修改配置",
+    deleteConnection: "删除配置",
+    deleteTitle: "删除连接配置",
+    deleteWarning: "配置、查询历史和系统凭证将被永久删除。",
+    keepCredential: "留空则保留原凭证",
+    saveChanges: "保存修改",
+    savingChanges: "保存中…",
+    confirmDelete: "确认删除",
   },
   "en-US": {
     saved: "Saved connections",
@@ -185,6 +195,14 @@ const messages = {
     endpoint: "ENDPOINT",
     accessKey: "Access Key",
     secretKey: "Secret Key",
+    editConnection: "Edit profile",
+    deleteConnection: "Delete profile",
+    deleteTitle: "Delete connection profile",
+    deleteWarning: "The profile, query history, and system credentials will be permanently deleted.",
+    keepCredential: "Leave blank to keep the current credential",
+    saveChanges: "Save changes",
+    savingChanges: "Saving…",
+    confirmDelete: "Delete profile",
   },
 } as const;
 
@@ -206,6 +224,8 @@ function App() {
   const [savedProfileId, setSavedProfileId] = useState(0);
   const [savedSearch, setSavedSearch] = useState("");
   const [savedPage, setSavedPage] = useState(1);
+  const [editingProfileId, setEditingProfileId] = useState(0);
+  const [deleteCandidate, setDeleteCandidate] = useState<Profile | null>(null);
   const [adapterPickerOpen, setAdapterPickerOpen] = useState(false);
   const [configSwitcherOpen, setConfigSwitcherOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -465,12 +485,25 @@ function App() {
       .slice(0, 8);
   }, [result, query]);
 
-  /** Saves a new connection and opens its first available logstore. */
+  /** Saves a new connection or updates the selected saved profile. */
   async function connect(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
+      if (editingProfileId) {
+        await UpdateProfile(editingProfileId, {
+          ...form,
+          name: form.name.trim(),
+        });
+        const data: any = await Bootstrap();
+        setProfiles(data.profiles || []);
+        setSavedProfileId(editingProfileId);
+        setEditingProfileId(0);
+        setForm({ ...emptyForm });
+        setConnectionMode("saved");
+        return;
+      }
       const s: any = await Connect({ ...form, name: form.name.trim() });
       await applySession(s);
       const data: any = await Bootstrap();
@@ -480,6 +513,56 @@ function App() {
     } finally {
       setBusy(false);
     }
+  }
+  /** Opens the connection form with non-secret metadata from a saved profile. */
+  function editSavedProfile(profile: Profile) {
+    setEditingProfileId(profile.id);
+    setForm({
+      adapterId: profile.adapterId,
+      name: profile.name,
+      endpoint: profile.endpoint,
+      accessKey: "",
+      secretKey: "",
+      project: profile.project,
+      region: profile.region,
+    });
+    setError("");
+    setConnectionMode("new");
+  }
+  /** Deletes the confirmed profile and refreshes the saved connection list. */
+  async function deleteSavedProfile() {
+    if (!deleteCandidate) return;
+    setBusy(true);
+    setError("");
+    try {
+      await DeleteProfile(deleteCandidate.id);
+      const data: any = await Bootstrap();
+      const remaining: Profile[] = data.profiles || [];
+      setProfiles(remaining);
+      setSavedPage(1);
+      setSavedProfileId((current) =>
+        current === deleteCandidate.id ? remaining[0]?.id || 0 : current,
+      );
+      if (editingProfileId === deleteCandidate.id) {
+        setEditingProfileId(0);
+        setForm({ ...emptyForm });
+      }
+      if (profileId === deleteCandidate.id) resetWorkspace();
+      if (!remaining.length) setConnectionMode("new");
+      setDeleteCandidate(null);
+    } catch (e) {
+      setError(String(e));
+      setDeleteCandidate(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+  /** Resets the form so it creates a new profile instead of editing one. */
+  function startNewConnection() {
+    setEditingProfileId(0);
+    setForm({ ...emptyForm });
+    setError("");
+    setConnectionMode("new");
   }
   /** Restores credentials and connects a previously saved profile. */
   async function connectSavedProfile(id = savedProfileId) {
@@ -1102,19 +1185,23 @@ function App() {
                     role="tab"
                     aria-selected={connectionMode === "saved"}
                     className={connectionMode === "saved" ? "active" : ""}
-                    onClick={() => setConnectionMode("saved")}
+                    onClick={() => {
+                      setEditingProfileId(0);
+                      setForm({ ...emptyForm });
+                      setError("");
+                      setConnectionMode("saved");
+                    }}
                   >
                     {t.saved}
-                    {profiles.length > 0 && <span>{profiles.length}</span>}
                   </button>
                   <button
                     type="button"
                     role="tab"
                     aria-selected={connectionMode === "new"}
                     className={connectionMode === "new" ? "active" : ""}
-                    onClick={() => setConnectionMode("new")}
+                    onClick={startNewConnection}
                   >
-                    ＋ {t.newConnection}
+                    {editingProfileId ? t.editConnection : `＋ ${t.newConnection}`}
                   </button>
                 </div>
                 {connectionMode === "saved" ? (
@@ -1156,41 +1243,43 @@ function App() {
                               </button>
                             )}
                           </label>
-                          <span>{filteredProfiles.length}</span>
                         </div>
                         <div
                           className="saved-profile-list"
-                          role="listbox"
+                          role="list"
                           aria-label={t.saved}
                         >
                           {visibleProfiles.map((profile) => {
                             const adapter = adapters.find(
                               (item) => item.id === profile.adapterId,
                             );
+                            const profileLabel =
+                              profile.name?.trim() ||
+                              profile.project ||
+                              profile.region ||
+                              profile.endpoint ||
+                              t.unnamedConnection;
                             return (
-                              <button
-                                type="button"
-                                role="option"
-                                aria-selected={profile.id === savedProfileId}
+                              <div
+                                role="listitem"
                                 className={
                                   profile.id === savedProfileId
-                                    ? "selected"
-                                    : ""
+                                    ? "saved-profile-row selected"
+                                    : "saved-profile-row"
                                 }
                                 key={profile.id}
-                                onClick={() => setSavedProfileId(profile.id)}
                               >
+                                <button
+                                  type="button"
+                                  className="saved-profile-main"
+                                  aria-pressed={profile.id === savedProfileId}
+                                  onClick={() => setSavedProfileId(profile.id)}
+                                >
                                 <span className="profile-platform">
                                   {adapterText(adapter).name.slice(0, 1) || "L"}
                                 </span>
                                 <span className="saved-profile-copy">
-                                  <strong>
-                                    {profile.name?.trim() ||
-                                      profile.project ||
-                                      profile.region ||
-                                      profile.endpoint ||
-                                      t.unnamedConnection}
-                                  </strong>
+                                  <strong>{profileLabel}</strong>
                                   <small>
                                     {adapterText(adapter).name ||
                                       profile.adapterId}
@@ -1210,7 +1299,31 @@ function App() {
                                     profile.endpoint ||
                                     t.unnamedConnection}
                                 </span>
-                              </button>
+                                </button>
+                                <span className="saved-profile-actions">
+                                  <button
+                                    type="button"
+                                    onClick={() => editSavedProfile(profile)}
+                                    aria-label={`${t.editConnection} ${profileLabel}`}
+                                    title={t.editConnection}
+                                  >
+                                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                                      <path d="m4 14.8-.5 2.2 2.2-.5L15.9 6.3l-1.7-1.7Z" />
+                                      <path d="m12.9 5.9 1.7 1.7" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteCandidate(profile)}
+                                    aria-label={`${t.deleteConnection} ${profileLabel}`}
+                                    title={t.deleteConnection}
+                                  >
+                                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                                      <path d="M4.5 6.5h11M8 3.5h4l1 2H7l1-2Zm-2 3 .7 10h6.6l.7-10M8.5 9v4.5M11.5 9v4.5" />
+                                    </svg>
+                                  </button>
+                                </span>
+                              </div>
                             );
                           })}
                           {!visibleProfiles.length && (
@@ -1268,7 +1381,7 @@ function App() {
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() => setConnectionMode("new")}
+                          onClick={startNewConnection}
                         >
                           {t.newConnection}
                         </button>
@@ -1376,6 +1489,7 @@ function App() {
                             setForm({ ...form, accessKey: e.target.value })
                           }
                           autoComplete="off"
+                          placeholder={editingProfileId ? t.keepCredential : ""}
                         />
                       </label>
                       <label>
@@ -1387,6 +1501,7 @@ function App() {
                             setForm({ ...form, secretKey: e.target.value })
                           }
                           autoComplete="new-password"
+                          placeholder={editingProfileId ? t.keepCredential : ""}
                         />
                       </label>
                       {(form.adapterId === "tencent-cls" ||
@@ -1418,16 +1533,56 @@ function App() {
                       disabled={busy || !selected?.ready}
                     >
                       {busy
-                        ? t.connecting
-                        : effectiveSettings.language === "zh-CN"
-                          ? "保存并连接"
-                          : "Save & Connect"}
+                        ? editingProfileId
+                          ? t.savingChanges
+                          : t.connecting
+                        : editingProfileId
+                          ? t.saveChanges
+                          : effectiveSettings.language === "zh-CN"
+                            ? "保存并连接"
+                            : "Save & Connect"}
                     </button>
                   </>
                 )}
                 {connectionMode === "saved" && error && (
                   <div className="alert" role="alert">
                     {error}
+                  </div>
+                )}
+                {deleteCandidate && (
+                  <div className="profile-delete-backdrop" role="presentation">
+                    <div
+                      className="profile-delete-dialog"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="profile-delete-title"
+                    >
+                      <h2 id="profile-delete-title">{t.deleteTitle}</h2>
+                      <strong>
+                        {deleteCandidate.name?.trim() ||
+                          deleteCandidate.endpoint ||
+                          t.unnamedConnection}
+                      </strong>
+                      <p>{t.deleteWarning}</p>
+                      <footer>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => setDeleteCandidate(null)}
+                          disabled={busy}
+                        >
+                          {t.cancel}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void deleteSavedProfile()}
+                          disabled={busy}
+                        >
+                          {t.confirmDelete}
+                        </button>
+                      </footer>
+                    </div>
                   </div>
                 )}
               </form>

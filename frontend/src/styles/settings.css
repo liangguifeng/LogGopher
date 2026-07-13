@@ -52,7 +52,6 @@
 .connection-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 8px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .connection-tabs button { height: 44px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; font-weight: 650; }
 .connection-tabs button.active { background: var(--panel2); color: var(--text); box-shadow: 0 1px 3px #0002; }
-.connection-tabs button span { margin-left: 8px; padding: 1px 7px; border-radius: 10px; background: var(--line); font-size: 10px; }
 .connect-card > .form-grid, .connect-card > .primary, .connect-card > .alert { margin-inline: 28px; }
 .connect-card > .form-grid { padding-top: 26px; }
 .connect-card > .primary { width: calc(100% - 56px); margin-bottom: 28px; }

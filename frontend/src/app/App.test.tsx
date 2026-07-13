@@ -7,9 +7,11 @@ const api=vi.hoisted(()=>({
   Bootstrap:vi.fn(),
   Connect:vi.fn(),
   ConnectSaved:vi.fn(),
+  DeleteProfile:vi.fn(),
   Query:vi.fn(),
   QueryHistory:vi.fn(),
   SaveSettings:vi.fn(),
+  UpdateProfile:vi.fn(),
 }));
 
 vi.mock('../../wailsjs/go/main/App',()=>api);
@@ -36,6 +38,8 @@ describe('App connection workflow',()=>{
     api.Query.mockResolvedValue({tookMs:1,total:0,entries:[],histogram:[]});
     api.QueryHistory.mockResolvedValue([]);
     api.SaveSettings.mockResolvedValue(undefined);
+    api.UpdateProfile.mockResolvedValue(undefined);
+    api.DeleteProfile.mockResolvedValue(undefined);
   });
 
   it('selects AWS with the custom platform picker and submits its region',async()=>{
@@ -73,5 +77,39 @@ describe('App connection workflow',()=>{
     expect(await screen.findByText('Log platform')).toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(document.documentElement.dataset.density).toBe('compact');
+  });
+
+  it('edits and deletes saved profiles without showing list counts',async()=>{
+    const user=userEvent.setup();
+    const profile={
+      id:7,adapterId:'aws-cloudwatch',name:'AWS production',
+      endpoint:'https://logs.us-east-1.amazonaws.com',project:'',region:'us-east-1',
+    };
+    api.Bootstrap
+      .mockResolvedValueOnce({...bootstrap,profiles:[profile]})
+      .mockResolvedValueOnce({...bootstrap,profiles:[{...profile,name:'AWS renamed'}]})
+      .mockResolvedValueOnce({...bootstrap,profiles:[]});
+    render(<App/>);
+
+    expect(await screen.findByText('AWS production')).toBeInTheDocument();
+    expect(document.querySelector('.saved-profile-tools > span')).toBeNull();
+    expect(document.querySelector('.connection-tabs button > span')).toBeNull();
+
+    await user.click(screen.getByRole('button',{name:'修改配置 AWS production'}));
+    const alias=screen.getByPlaceholderText('例如：杭州生产环境');
+    expect(alias).toHaveValue('AWS production');
+    expect(screen.getAllByPlaceholderText('留空则保留原凭证')).toHaveLength(2);
+    await user.clear(alias);
+    await user.type(alias,'AWS renamed');
+    await user.click(screen.getByRole('button',{name:'保存修改'}));
+    await waitFor(()=>expect(api.UpdateProfile).toHaveBeenCalledWith(7,expect.objectContaining({
+      name:'AWS renamed',accessKey:'',secretKey:'',region:'us-east-1',
+    })));
+
+    await user.click(await screen.findByRole('button',{name:'删除配置 AWS renamed'}));
+    expect(screen.getByRole('dialog',{name:'删除连接配置'})).toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'确认删除'}));
+    await waitFor(()=>expect(api.DeleteProfile).toHaveBeenCalledWith(7));
+    expect(await screen.findByText('日志平台')).toBeInTheDocument();
   });
 });
