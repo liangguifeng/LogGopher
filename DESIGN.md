@@ -89,7 +89,8 @@ flowchart LR
 - 2026-07-12：JSON 默认展开层级以 `profile_id + group + logstore` 为前端会话作用域保存，默认 2 层、范围 0–8；切换日志库关闭设置弹层并恢复目标日志库的独立值，不写入全局 Settings 或 SQLite。
 - 2026-07-12：本地化 Edit 菜单保留自定义菜单项，但 Paste 不再调用受 WebView 权限约束的 `document.execCommand('paste')`；Go 侧通过 Wails Runtime 读取系统剪贴板，仅将文本注入当前聚焦的 input/textarea 并派发标准 input 事件，避免二次授权提示且兼容 React controlled input。
 - 2026-07-13：建立全应用测试体系。新增 Application/Wails 边界与 SQLite 集成测试、Adapter Registry 和校验矩阵；frontend 引入 Vitest + jsdom + Testing Library。`make test/test-race/coverage/check` 形成统一门禁，并将 Vite 升级到修复已知 dev-server 漏洞的 6.4.3。
-- 2026-07-13：替换 Wails 默认应用图标，采用 Gopher、日志行与搜索镜组合的 LogGopher 独立标识；维护 1024px RGBA 母版和 Windows 16–256px 多尺寸 ICO，macOS ICNS 由 Wails production build 从母版生成。
+- 2026-07-13：替换 Wails 默认应用图标，采用 `LOG`、结构化日志行与搜索镜组合的日志检索引擎标识；维护 SVG 矢量母版、1024px RGBA 平台母版和 Windows 16–256px 多尺寸 ICO，macOS ICNS 由 Wails production build 从 PNG 母版生成。
+- 2026-07-13：应用图标使用暖白色圆角底板与深色单色标识，移除容易在 macOS Dock 中形成黑色方块观感的深色背景，并避免使用 Gopher 或 Go 语言元素，让品牌语义聚焦于跨平台日志检索。
 - 2026-07-13：GitHub Release 采用 SemVer Tag 驱动的原生六矩阵构建，分别覆盖 Linux、Windows、macOS 的 amd64/arm64；所有平台产物先作为临时 Artifact 汇聚，全部成功后再原子创建 Release，并同时发布 SHA-256 校验和。官方 Actions 固定到完整 commit SHA，Release job 单独授予最小 `contents: write` 权限。
 - 2026-07-13：连接管理补齐稳定 Profile ID 的修改与删除。修改页面仅回显非敏感元数据，空 AK/SK 表示沿用系统凭证库原值；修改后主动失效内存 Session，要求重新连接。删除操作同步清理 SQLite Profile、查询历史、系统凭证和内存 Session，并在前端执行二次确认。
 - 2026-07-11：补齐应用、文件、编辑、视图、窗口、帮助原生菜单与快捷键。
