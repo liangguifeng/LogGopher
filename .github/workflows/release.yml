@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  WAILS_VERSION: v2.10.2
+
+jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Go tests and vet
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Test and build frontend
+        working-directory: frontend
+        run: |
+          npm test
+          npm run build
+
+  build:
+    name: Build ${{ matrix.os }} ${{ matrix.arch }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            build_args: -tags webkit2_41
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            build_args: -tags webkit2_41
+          - os: windows
+            arch: amd64
+            runner: windows-2025
+            platform: windows/amd64
+            build_args: ""
+          - os: windows
+            arch: arm64
+            runner: windows-11-arm
+            platform: windows/arm64
+            build_args: ""
+          - os: darwin
+            arch: amd64
+            runner: macos-15-intel
+            platform: darwin/amd64
+            build_args: ""
+          - os: darwin
+            arch: arm64
+            runner: macos-15
+            platform: darwin/arm64
+            build_args: ""
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build application
+        shell: bash
+        run: >-
+          go run github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+          build -clean -m -trimpath -nocolour
+          -platform "${{ matrix.platform }}" ${{ matrix.build_args }}
+
+      - name: Ad-hoc sign macOS bundle
+        if: matrix.os == 'darwin'
+        run: codesign --force --deep --sign - build/bin/LogGopher.app
+
+      - name: Package Linux application
+        if: matrix.os == 'linux'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p package/LogGopher release
+          install -m 0755 build/bin/LogGopher package/LogGopher/LogGopher
+          cp README.md README_EN.md LICENSE package/LogGopher/
+          tar -C package -czf "release/LogGopher_${version}_linux_${{ matrix.arch }}.tar.gz" LogGopher
+
+      - name: Package macOS application
+        if: matrix.os == 'darwin'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p package/LogGopher release
+          cp -R build/bin/LogGopher.app package/LogGopher/
+          cp README.md README_EN.md LICENSE package/LogGopher/
+          tar -C package -czf "release/LogGopher_${version}_darwin_${{ matrix.arch }}.tar.gz" LogGopher
+
+      - name: Package Windows application
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          New-Item -ItemType Directory -Force -Path package/LogGopher, release | Out-Null
+          Copy-Item build/bin/LogGopher.exe, README.md, README_EN.md, LICENSE package/LogGopher/
+          Compress-Archive -Path package/LogGopher -DestinationPath "release/LogGopher_${version}_windows_${{ matrix.arch }}.zip"
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.os }}-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release
+        run: sha256sum LogGopher_* > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}" release/*
+          --repo "${GITHUB_REPOSITORY}"
+          --verify-tag
+          --title "LogGopher ${GITHUB_REF_NAME#v}"
+          --generate-notes

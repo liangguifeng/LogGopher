@@ -25,6 +25,8 @@ LogGopher 是基于 Go、Wails 和 React 构建的跨平台日志查询工具。
 
 ## 快速开始
 
+可从 [GitHub Releases](https://github.com/liangguifeng/LogGopher/releases) 下载对应操作系统和 CPU 架构的安装包。
+
 环境要求：Go 1.25、Node.js 20+，以及对应平台的 [Wails v2](https://wails.io/docs/gettingstarted/installation) 依赖。
 
 ```bash

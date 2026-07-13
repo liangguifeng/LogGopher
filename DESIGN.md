@@ -90,5 +90,6 @@ flowchart LR
 - 2026-07-12：本地化 Edit 菜单保留自定义菜单项，但 Paste 不再调用受 WebView 权限约束的 `document.execCommand('paste')`；Go 侧通过 Wails Runtime 读取系统剪贴板，仅将文本注入当前聚焦的 input/textarea 并派发标准 input 事件，避免二次授权提示且兼容 React controlled input。
 - 2026-07-13：建立全应用测试体系。新增 Application/Wails 边界与 SQLite 集成测试、Adapter Registry 和校验矩阵；frontend 引入 Vitest + jsdom + Testing Library。`make test/test-race/coverage/check` 形成统一门禁，并将 Vite 升级到修复已知 dev-server 漏洞的 6.4.3。
 - 2026-07-13：替换 Wails 默认应用图标，采用 Gopher、日志行与搜索镜组合的 LogGopher 独立标识；维护 1024px RGBA 母版和 Windows 16–256px 多尺寸 ICO，macOS ICNS 由 Wails production build 从母版生成。
+- 2026-07-13：GitHub Release 采用 SemVer Tag 驱动的原生六矩阵构建，分别覆盖 Linux、Windows、macOS 的 amd64/arm64；所有平台产物先作为临时 Artifact 汇聚，全部成功后再原子创建 Release，并同时发布 SHA-256 校验和。官方 Actions 固定到完整 commit SHA，Release job 单独授予最小 `contents: write` 权限。
 - 2026-07-11：补齐应用、文件、编辑、视图、窗口、帮助原生菜单与快捷键。
 - 2026-07-11：重构连接首屏、Adapter 下拉选择、历史连接直连与系统 Keychain 凭证持久化。

@@ -25,6 +25,8 @@ LogGopher is a cross-platform log explorer built with Go, Wails, and React. It c
 
 ## Getting started
 
+Download a package for your operating system and CPU architecture from [GitHub Releases](https://github.com/liangguifeng/LogGopher/releases).
+
 Requirements: Go 1.25, Node.js 20+, and the platform dependencies listed in the [Wails v2 installation guide](https://wails.io/docs/gettingstarted/installation).
 
 ```bash
