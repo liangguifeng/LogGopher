@@ -79,6 +79,35 @@ func TestOpenPathProfilesAndMissingProfile(t *testing.T) {
 	if _, err := store.Profile(secondID + 100); err == nil {
 		t.Fatal("Profile() found a missing profile")
 	}
+	updated := first
+	updated.Name = "production-renamed"
+	updated.Endpoint = "https://updated.example.com"
+	if err := store.UpdateProfile(firstID, updated); err != nil {
+		t.Fatal(err)
+	}
+	profile, err = store.Profile(firstID)
+	if err != nil || profile.Name != updated.Name || profile.Endpoint != updated.Endpoint {
+		t.Fatalf("updated Profile() = %#v, %v", profile, err)
+	}
+	if err := store.SaveQueryHistory(firstID, "app", "level:error"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteProfile(firstID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Profile(firstID); err == nil {
+		t.Fatal("DeleteProfile() left profile metadata")
+	}
+	history, err := store.QueryHistory(firstID, "app", 20)
+	if err != nil || len(history) != 0 {
+		t.Fatalf("DeleteProfile() history = %#v, %v", history, err)
+	}
+	if err := store.UpdateProfile(firstID, updated); err == nil {
+		t.Fatal("UpdateProfile() updated a missing profile")
+	}
+	if err := store.DeleteProfile(firstID); err == nil {
+		t.Fatal("DeleteProfile() deleted a missing profile")
+	}
 }
 
 func TestQueryHistoryTrimsAndIgnoresInvalidEntries(t *testing.T) {

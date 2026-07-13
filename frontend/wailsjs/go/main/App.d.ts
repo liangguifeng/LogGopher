@@ -8,8 +8,12 @@ export function Connect(arg1:domain.ConnectionInput):Promise<domain.Session>;
 
 export function ConnectSaved(arg1:number):Promise<domain.Session>;
 
+export function DeleteProfile(arg1:number):Promise<void>;
+
 export function Query(arg1:domain.QueryInput):Promise<domain.QueryResult>;
 
 export function QueryHistory(arg1:number,arg2:string,arg3:string):Promise<Array<domain.QueryHistoryItem>>;
 
 export function SaveSettings(arg1:domain.Settings):Promise<void>;
+
+export function UpdateProfile(arg1:number,arg2:domain.ConnectionInput):Promise<void>;

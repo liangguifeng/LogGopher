@@ -145,6 +145,51 @@ func (s *Store) Profile(id int64) (domain.Profile, error) {
 	return profile, nil
 }
 
+// UpdateProfile replaces non-secret connection metadata for a stable profile ID.
+func (s *Store) UpdateProfile(id int64, in domain.ConnectionInput) error {
+	result, err := s.db.Exec(`UPDATE profiles
+		SET adapter_id=?,name=?,endpoint=?,project=?,region=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`, in.AdapterID, in.Name, in.Endpoint, in.Project, in.Region, id)
+	if err != nil {
+		return fmt.Errorf("update profile: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read updated profile count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("profile not found")
+	}
+	return nil
+}
+
+// DeleteProfile atomically removes profile metadata and its query history.
+func (s *Store) DeleteProfile(id int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin profile deletion: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM query_history WHERE profile_id=?", id); err != nil {
+		return fmt.Errorf("delete profile query history: %w", err)
+	}
+	result, err := tx.Exec("DELETE FROM profiles WHERE id=?", id)
+	if err != nil {
+		return fmt.Errorf("delete profile: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted profile count: %w", err)
+	}
+	if deleted == 0 {
+		return fmt.Errorf("profile not found")
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit profile deletion: %w", err)
+	}
+	return nil
+}
+
 // SaveQueryHistory upserts a query and trims history to the newest 50 entries.
 func (s *Store) SaveQueryHistory(profileID int64, logstore, query string) error {
 	query = strings.TrimSpace(query)

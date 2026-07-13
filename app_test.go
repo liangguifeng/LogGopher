@@ -80,6 +80,20 @@ func TestAppConnectionQueryAndHistoryBoundary(t *testing.T) {
 	if err != nil || reconnected.ProfileID != session.ProfileID {
 		t.Fatalf("ConnectSaved() = %#v, %v", reconnected, err)
 	}
+	update := input
+	update.Name = "production-renamed"
+	update.AccessKey = ""
+	update.SecretKey = ""
+	if err := app.UpdateProfile(session.ProfileID, update); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.DeleteProfile(session.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, err = app.Bootstrap()
+	if err != nil || len(bootstrap.Profiles) != 0 {
+		t.Fatalf("Bootstrap() after deletion = %#v, %v", bootstrap, err)
+	}
 }
 
 func TestAppRejectsInvalidBoundaryInputs(t *testing.T) {
@@ -89,6 +103,12 @@ func TestAppRejectsInvalidBoundaryInputs(t *testing.T) {
 	}
 	if _, err := app.ConnectSaved(0); err == nil {
 		t.Fatal("ConnectSaved() accepted invalid profile")
+	}
+	if err := app.UpdateProfile(0, domain.ConnectionInput{}); err == nil {
+		t.Fatal("UpdateProfile() accepted invalid profile")
+	}
+	if err := app.DeleteProfile(0); err == nil {
+		t.Fatal("DeleteProfile() accepted invalid profile")
 	}
 	if _, err := app.Query(domain.QueryInput{}); err == nil {
 		t.Fatal("Query() accepted empty logstore")

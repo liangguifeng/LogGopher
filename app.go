@@ -75,6 +75,26 @@ func (a *App) ConnectSaved(profileID int64) (domain.Session, error) {
 	return session, nil
 }
 
+// UpdateProfile modifies a saved connection without exposing stored credentials.
+func (a *App) UpdateProfile(profileID int64, input domain.ConnectionInput) error {
+	if err := a.service.UpdateProfile(profileID, input); err != nil {
+		a.logger.Error("update saved connection", "profile_id", profileID, "adapter_id", input.AdapterID, "error", err)
+		return err
+	}
+	a.logger.Info("saved connection updated", "profile_id", profileID, "adapter_id", input.AdapterID)
+	return nil
+}
+
+// DeleteProfile permanently removes a saved connection and its credentials.
+func (a *App) DeleteProfile(profileID int64) error {
+	if err := a.service.DeleteProfile(profileID); err != nil {
+		a.logger.Error("delete saved connection", "profile_id", profileID, "error", err)
+		return err
+	}
+	a.logger.Info("saved connection deleted", "profile_id", profileID)
+	return nil
+}
+
 // Query executes a normalized log query and records operational metrics.
 func (a *App) Query(input domain.QueryInput) (domain.QueryResult, error) {
 	started := time.Now()

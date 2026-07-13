@@ -14,6 +14,10 @@ export function ConnectSaved(arg1) {
   return window['go']['main']['App']['ConnectSaved'](arg1);
 }
 
+export function DeleteProfile(arg1) {
+  return window['go']['main']['App']['DeleteProfile'](arg1);
+}
+
 export function Query(arg1) {
   return window['go']['main']['App']['Query'](arg1);
 }
@@ -24,4 +28,8 @@ export function QueryHistory(arg1, arg2, arg3) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function UpdateProfile(arg1, arg2) {
+  return window['go']['main']['App']['UpdateProfile'](arg1, arg2);
 }

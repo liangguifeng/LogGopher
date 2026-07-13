@@ -109,6 +109,34 @@ func TestServiceConnectQueryHistoryAndReconnect(t *testing.T) {
 	if err != nil || len(bootstrap.Profiles) != 1 || len(bootstrap.Adapters) != 3 {
 		t.Fatalf("Bootstrap() = %#v, %v", bootstrap, err)
 	}
+	update := testConnection()
+	update.Name = "production-renamed"
+	update.Endpoint = "https://updated.example.com"
+	update.AccessKey = ""
+	update.SecretKey = ""
+	if err := service.UpdateProfile(session.ProfileID, update); err != nil {
+		t.Fatal(err)
+	}
+	profile, err := service.store.Profile(session.ProfileID)
+	if err != nil || profile.Name != update.Name || profile.Endpoint != update.Endpoint {
+		t.Fatalf("updated profile = %#v, %v", profile, err)
+	}
+	if got := credentials.items[session.ProfileID]; got.AccessKey != "access" || got.SecretKey != "secret" {
+		t.Fatalf("UpdateProfile() replaced retained credentials: %#v", got)
+	}
+	if _, err := service.Query(query); err == nil {
+		t.Fatal("UpdateProfile() left the old session active")
+	}
+	if err := service.DeleteProfile(session.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := credentials.items[session.ProfileID]; ok {
+		t.Fatal("DeleteProfile() left credentials")
+	}
+	bootstrap, err = service.Bootstrap()
+	if err != nil || len(bootstrap.Profiles) != 0 {
+		t.Fatalf("Bootstrap() after deletion = %#v, %v", bootstrap, err)
+	}
 }
 
 func TestServiceRejectsUnknownExpiredAndProviderFailures(t *testing.T) {
@@ -120,6 +148,12 @@ func TestServiceRejectsUnknownExpiredAndProviderFailures(t *testing.T) {
 	}
 	if _, err := service.Query(domain.QueryInput{ProfileID: 99}); err == nil {
 		t.Fatal("Query() accepted expired session")
+	}
+	if err := service.UpdateProfile(0, testConnection()); err == nil {
+		t.Fatal("UpdateProfile() accepted an empty profile ID")
+	}
+	if err := service.DeleteProfile(0); err == nil {
+		t.Fatal("DeleteProfile() accepted an empty profile ID")
 	}
 	fake.connectErr = errors.New("provider unavailable")
 	if _, err := service.Connect(testConnection()); !errors.Is(err, fake.connectErr) {

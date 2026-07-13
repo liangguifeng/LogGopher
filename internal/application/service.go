@@ -98,6 +98,72 @@ func (s *Service) ConnectSaved(profileID int64) (domain.Session, error) {
 	return domain.Session{ProfileID: profileID, Groups: groups}, nil
 }
 
+// UpdateProfile replaces saved metadata and optionally rotates stored credentials.
+func (s *Service) UpdateProfile(profileID int64, in domain.ConnectionInput) error {
+	if profileID <= 0 {
+		return errors.New("profile is required")
+	}
+	current, err := s.store.Profile(profileID)
+	if err != nil {
+		return err
+	}
+	currentSecret, err := s.credentials.Get(profileID)
+	if err != nil {
+		return err
+	}
+	if in.AccessKey == "" {
+		in.AccessKey = currentSecret.AccessKey
+	}
+	if in.SecretKey == "" {
+		in.SecretKey = currentSecret.SecretKey
+	}
+	if err := in.Validate(); err != nil {
+		return err
+	}
+	if _, ok := s.registry.Get(in.AdapterID); !ok {
+		return errors.New("unknown adapter")
+	}
+	if err := s.store.UpdateProfile(profileID, in); err != nil {
+		return err
+	}
+	if err := s.credentials.Save(profileID, credential.Secret{AccessKey: in.AccessKey, SecretKey: in.SecretKey}); err != nil {
+		rollback := domain.ConnectionInput{
+			AdapterID: current.AdapterID, Name: current.Name, Endpoint: current.Endpoint,
+			Project: current.Project, Region: current.Region,
+		}
+		_ = s.store.UpdateProfile(profileID, rollback)
+		return err
+	}
+	s.mu.Lock()
+	delete(s.sessions, profileID)
+	s.mu.Unlock()
+	return nil
+}
+
+// DeleteProfile removes a saved connection, credentials, history, and active session.
+func (s *Service) DeleteProfile(profileID int64) error {
+	if profileID <= 0 {
+		return errors.New("profile is required")
+	}
+	if _, err := s.store.Profile(profileID); err != nil {
+		return err
+	}
+	secret, secretErr := s.credentials.Get(profileID)
+	if err := s.credentials.Delete(profileID); err != nil {
+		return err
+	}
+	if err := s.store.DeleteProfile(profileID); err != nil {
+		if secretErr == nil {
+			_ = s.credentials.Save(profileID, secret)
+		}
+		return err
+	}
+	s.mu.Lock()
+	delete(s.sessions, profileID)
+	s.mu.Unlock()
+	return nil
+}
+
 // Query delegates a vendor-neutral query to the adapter for an active session.
 func (s *Service) Query(q domain.QueryInput) (domain.QueryResult, error) {
 	s.mu.RLock()
