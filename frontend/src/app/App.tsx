@@ -1,3 +1,4 @@
+/** Owns the desktop UI state machine and its Wails application boundary calls. */
 import {
   FormEvent,
   KeyboardEvent,
@@ -11,6 +12,7 @@ import "../styles/app.css";
 import "../styles/settings.css";
 import "../styles/workspace-scale.css";
 import "../styles/functional-theme.css";
+import "../styles/observatory-theme.css";
 import {
   Bootstrap,
   Connect,

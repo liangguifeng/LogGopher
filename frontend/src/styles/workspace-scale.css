@@ -1,4 +1,4 @@
-/* Connected workspace readability scale: +2px without changing the connection screen. */
+/* Scales the connected workspace for readability without changing the connection screen. */
 .workspace:not(.connection-only) .section-title { font-size: 12px; }
 .workspace:not(.connection-only) .store { min-height: 36px; font-size: 15px; }
 .workspace:not(.connection-only) .store-icon { font-size: 16px; }
@@ -123,3 +123,4 @@
 .workspace:not(.connection-only) .json-node,
 .workspace:not(.connection-only) .json-leaf { min-height: 23px; }
 .workspace:not(.connection-only) .json-node > button { width: 18px; font-size: 13px; }
+.workspace:not(.connection-only) .json-node > div + .json-brace { margin-left: 18px; }

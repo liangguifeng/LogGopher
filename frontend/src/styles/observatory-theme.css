@@ -1,0 +1,520 @@
+/*
+ * Observatory Console
+ * The final visual layer for LogGopher. It keeps the dense log workflow intact
+ * while giving both themes the same depth, rhythm, and interaction language.
+ */
+:root {
+  color-scheme: dark;
+  --bg: #090d18;
+  --panel: #101625;
+  --panel2: #161e31;
+  --filter-bg: #0c1220;
+  --line: #242e45;
+  --control-border: #303c57;
+  --muted: #8995ad;
+  --text: #f2f5fb;
+  --accent: #7c8cff;
+  --accent2: #46c7f4;
+  --danger: #ff6b86;
+  --active-row: #1a2540;
+  --hover: #172036;
+  --disabled-bg: #121827;
+  --scroll-thumb: #35415a;
+  --scroll-thumb-hover: #4b5975;
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 48%, var(--line));
+  --surface-raised: color-mix(in srgb, var(--panel) 92%, white 8%);
+  --shadow-sm: 0 1px 2px #0005, 0 6px 18px #0002;
+  --shadow-md: 0 18px 48px #02050c66;
+  --shadow-lg: 0 28px 80px #02050c88;
+  font-family: Inter, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fc;
+  --panel: #ffffff;
+  --panel2: #f0f3fa;
+  --filter-bg: #f8f9fd;
+  --line: #e1e6f0;
+  --control-border: #d2d9e7;
+  --muted: #68758d;
+  --text: #172033;
+  --accent: #5968e9;
+  --accent2: #168fc4;
+  --danger: #d83e5d;
+  --active-row: #eef1ff;
+  --hover: #f0f3f9;
+  --disabled-bg: #eef1f6;
+  --scroll-thumb: #bdc6d6;
+  --scroll-thumb-hover: #9eabc0;
+  --surface-raised: #ffffff;
+  --shadow-sm: 0 1px 2px #1e2b4610, 0 7px 20px #1e2b4610;
+  --shadow-md: 0 18px 46px #2637531a;
+  --shadow-lg: 0 28px 80px #26375326;
+}
+
+body,
+.content,
+.query-view,
+.settings-page {
+  background: var(--bg);
+}
+
+.content {
+  background-image:
+    radial-gradient(circle at 78% -15%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 38%),
+    radial-gradient(circle at 12% 115%, color-mix(in srgb, var(--accent2) 7%, transparent), transparent 34%) !important;
+}
+
+button,
+input,
+textarea,
+select {
+  letter-spacing: -0.005em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Primary actions */
+.primary,
+.query-toolbar .query-submit,
+.time-popover > footer button {
+  border: 1px solid color-mix(in srgb, var(--accent) 74%, white 26%);
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, var(--accent2))) !important;
+  color: #fff;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 25%, transparent) !important;
+  transition: border-color 160ms ease, filter 160ms ease, transform 160ms ease;
+}
+
+.primary:hover,
+.query-toolbar .query-submit:hover,
+.time-popover > footer button:hover {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, white), var(--accent2)) !important;
+  filter: saturate(1.05) brightness(1.04);
+}
+
+/* Connection manager */
+.connection-manager-header,
+.connection-pane-header,
+.settings-page-header {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--bg) 90%, var(--panel));
+}
+
+.connection-manager-header {
+  min-height: 76px;
+  padding-inline: 30px;
+}
+
+.connection-manager-mark {
+  width: 40px;
+  height: 40px;
+  border-color: var(--accent-border);
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 1px color-mix(in srgb, white 12%, transparent) !important;
+}
+
+.connection-manager-header h1 {
+  font-size: 18px;
+  font-weight: 720;
+  letter-spacing: -0.35px;
+}
+
+.connection-manager-header small,
+.connection-pane-header p {
+  font-size: 11px;
+}
+
+.connection-settings-button,
+.settings-back-button,
+.log-sidebar-toggle,
+.time-picker .time {
+  border-color: var(--control-border);
+  border-radius: 8px;
+  background: var(--surface-raised) !important;
+  color: var(--muted);
+  box-shadow: var(--shadow-sm) !important;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+[data-theme="dark"] .time-picker .time {
+  background: #101625 !important;
+  color: #c8d0e0;
+}
+
+.connection-settings-button:hover,
+.settings-back-button:hover,
+.log-sidebar-toggle:hover,
+.time-picker .time:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.connection-only .connect-card.connection-workbench {
+  background: transparent;
+}
+
+.connection-navigation {
+  padding: 24px 14px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+}
+
+.connection-navigation > strong {
+  padding-inline: 12px;
+  color: color-mix(in srgb, var(--muted) 88%, var(--accent));
+  letter-spacing: 1.5px;
+}
+
+.connection-navigation .connection-tabs button {
+  height: 44px;
+  border-radius: 8px;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.connection-navigation .connection-tabs button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 0 1px color-mix(in srgb, white 6%, transparent) !important;
+}
+
+.connection-navigation .connection-tabs button.active::after {
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.connection-pane-body {
+  padding: 28px 30px;
+}
+
+.saved-profile-tools > label,
+.form-grid input,
+.form-grid select,
+.adapter-trigger {
+  border-color: var(--control-border);
+  border-radius: 8px;
+  background: var(--filter-bg);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.saved-profile-tools > label:focus-within,
+.form-grid input:focus,
+.form-grid select:focus,
+.adapter-trigger.open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+}
+
+.saved-profile-list,
+.saved-profile-inspector,
+.no-saved,
+.settings-preference-list {
+  border-color: var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.saved-profile-row {
+  border-color: var(--line);
+  background: transparent;
+  transition: background 140ms ease;
+}
+
+.saved-profile-row.selected {
+  background: var(--active-row);
+  box-shadow: inset 3px 0 var(--accent) !important;
+}
+
+.profile-platform,
+.sidebar-profile-mark {
+  border-color: var(--accent-border);
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Connected log workspace */
+.workspace:not(.connection-only) {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+.workspace:not(.connection-only) > .sidebar {
+  width: 248px;
+}
+
+.workspace:not(.connection-only) > .log-navigation {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, var(--bg));
+}
+
+.log-sidebar-heading {
+  min-height: 72px;
+  padding-inline: 16px;
+  background: linear-gradient(180deg, var(--accent-soft), transparent);
+}
+
+.log-sidebar-heading small {
+  color: var(--accent);
+}
+
+.log-sidebar-heading .count {
+  border-color: var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.workspace:not(.connection-only) .log-navigation .tree-store,
+.log-navigation .project-node,
+.log-navigation .sidebar-action {
+  border-radius: 7px;
+}
+
+.workspace:not(.connection-only) .log-navigation .tree-store.active {
+  background: var(--active-row);
+  color: var(--text);
+}
+
+.log-navigation .tree-store.active::before {
+  border-radius: 2px;
+  background: linear-gradient(var(--accent2), var(--accent)) !important;
+}
+
+.log-navigation .sidebar-footer {
+  background: color-mix(in srgb, var(--panel) 80%, var(--bg));
+}
+
+.sidebar-profile {
+  margin-inline: 2px;
+  padding: 8px 6px 12px;
+}
+
+.workspace:not(.connection-only) .query-view {
+  padding: 18px 22px 22px;
+}
+
+.query-head {
+  min-height: 44px;
+  margin-bottom: 14px;
+}
+
+.breadcrumb-line .breadcrumb {
+  color: var(--accent);
+  letter-spacing: 0.8px;
+}
+
+.breadcrumb-line h1,
+.breadcrumb-value {
+  font-weight: 650;
+}
+
+.query-console,
+.log-results-panel {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.query-toolbar {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--panel) 92%, var(--filter-bg));
+}
+
+.query-toolbar button {
+  border-color: var(--line);
+}
+
+.query-toolbar textarea {
+  background: transparent;
+}
+
+.query-toolbar .query-submit {
+  margin: 5px;
+  width: auto !important;
+  border-radius: 7px;
+}
+
+.query-tool.favorite.active {
+  background: #f5b9421c;
+  color: #f5bd4f;
+}
+
+.query-stats {
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent-soft));
+}
+
+.query-stats > strong::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 15%, transparent) !important;
+  content: "";
+  vertical-align: 1px;
+}
+
+.histogram-plot {
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 32px, var(--line) 33px) !important;
+}
+
+.histogram-bucket > span {
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, var(--accent2), var(--accent));
+  opacity: 0.88;
+}
+
+.field-sidebar {
+  background: color-mix(in srgb, var(--panel) 88%, var(--bg));
+}
+
+.field-search,
+.page-size-trigger,
+.pagination button,
+.pagination input,
+.log-toolbar > button,
+.view-switch button,
+.json-settings-trigger {
+  border-color: var(--control-border);
+  border-radius: 6px;
+  background: var(--filter-bg);
+}
+
+.view-switch {
+  gap: 3px;
+}
+
+.view-switch button + button {
+  border-left: 1px solid var(--control-border);
+}
+
+.view-switch button.active,
+.pagination b {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.raw-log:hover,
+.results-table tbody tr:hover,
+.field-item:hover {
+  background: color-mix(in srgb, var(--active-row) 78%, transparent);
+}
+
+.log-level.level-fatal,
+.log-level.level-error {
+  color: #ff7188;
+}
+
+.log-level.level-warn { color: #e8ae43; }
+.log-level.level-info { color: #3fbdeb; }
+.log-level.level-debug { color: #a9b3c6; }
+
+[data-theme="light"] .log-level.level-fatal,
+[data-theme="light"] .log-level.level-error { color: #c92f50; }
+[data-theme="light"] .log-level.level-warn { color: #a86f00; }
+[data-theme="light"] .log-level.level-info { color: #087fae; }
+
+/* Floating surfaces and preferences */
+.time-popover,
+.adapter-options,
+.page-size-options,
+.query-assist,
+.json-settings-popover,
+.log-filter-menu,
+.config-switcher-menu,
+.profile-delete-dialog,
+.date-time-panel {
+  border-color: var(--control-border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg) !important;
+}
+
+.settings-page-header {
+  min-height: 72px;
+  padding-inline: 30px;
+}
+
+.settings-page-content {
+  width: min(760px, calc(100% - 48px));
+  margin-top: 36px;
+}
+
+.settings-section-header {
+  margin-bottom: 16px;
+}
+
+.settings-section-header h2 {
+  font-size: 16px;
+}
+
+.settings-section-header p {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.settings-page .setting-group {
+  min-height: 78px;
+  padding: 14px 18px;
+}
+
+.setting-copy label {
+  font-size: 12px;
+}
+
+.setting-copy small {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+.settings-page .segmented {
+  gap: 3px;
+  padding: 3px;
+  border-color: var(--control-border);
+  border-radius: 8px;
+  background: var(--filter-bg);
+}
+
+.settings-page .segmented button {
+  height: 32px;
+  border-radius: 6px;
+}
+
+.settings-page .segmented button.selected {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+.settings-page-footer {
+  min-height: 60px;
+  background: color-mix(in srgb, var(--panel) 95%, var(--bg));
+}
+
+@media (max-width: 1100px) {
+  .workspace:not(.connection-only) { grid-template-columns: 224px minmax(0, 1fr); }
+  .workspace:not(.connection-only) > .sidebar { width: 224px; }
+  .workspace:not(.connection-only) .query-view { padding-inline: 16px; }
+  .connection-pane-body { padding-inline: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary,
+  .query-toolbar .query-submit,
+  .connection-navigation .connection-tabs button,
+  .saved-profile-row { transition: none; }
+}

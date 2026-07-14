@@ -1,3 +1,4 @@
+/* Styles result controls, field selection, JSON trees, table view, and pagination. */
 .log-results-panel {
   margin-top: 18px;
   overflow: hidden;
@@ -297,6 +298,10 @@
 }
 .json-brace {
   color: var(--accent);
+}
+.json-node > div + .json-brace {
+  display: block;
+  margin-left: 16px;
 }
 .json-value {
   color: #d58d4e;

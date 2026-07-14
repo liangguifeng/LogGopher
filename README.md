@@ -20,7 +20,7 @@ LogGopher 是基于 Go、Wails 和 React 构建的跨平台日志查询工具。
 - 以 Project/Region 和 Logstore/Topic/Log Group 树浏览日志资源
 - 支持时间筛选、查询历史、分页和日志分布图
 - 支持嵌套 JSON 展开、字段筛选及原始日志/表格视图
-- 通过独立偏好设置页切换亮色、暗色、跟随系统主题和中英文界面
+- 通过独立偏好设置页切换亮色、暗色、跟随系统主题和中英文界面；双主题共享统一的 Observatory Console 视觉层级与交互反馈
 - 使用本地 SQLite 统一保存连接配置与 AK/SK
 - 编辑连接时直接回填 AK，SK 默认遮罩并支持按需显示
 
