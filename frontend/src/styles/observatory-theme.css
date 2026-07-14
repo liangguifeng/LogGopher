@@ -79,6 +79,35 @@ select {
   outline-offset: 2px;
 }
 
+/* macOS keeps native traffic lights while the webview owns the centered title. */
+.shell.macos-titlebar {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+}
+
+.window-titlebar {
+  position: relative;
+  z-index: 30;
+  display: grid;
+  height: 38px;
+  place-items: center;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  color: var(--muted);
+  --wails-draggable: drag;
+}
+
+.window-titlebar span {
+  pointer-events: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.macos-titlebar > .workspace {
+  min-height: 0;
+}
+
 /* Primary actions */
 .primary,
 .query-toolbar .query-submit,

@@ -18,6 +18,7 @@ const api=vi.hoisted(()=>({
 
 vi.mock('../../wailsjs/go/main/App',()=>api);
 vi.mock('../../wailsjs/runtime/runtime',()=>({
+  Environment:vi.fn().mockResolvedValue({platform:'darwin',arch:'arm64',buildType:'dev'}),
   EventsOn:vi.fn(()=>vi.fn()),
   ClipboardSetText:vi.fn().mockResolvedValue(true),
 }));
@@ -44,6 +45,12 @@ describe('App connection workflow',()=>{
     api.SaveSettings.mockResolvedValue(undefined);
     api.UpdateProfile.mockResolvedValue(undefined);
     api.DeleteProfile.mockResolvedValue(undefined);
+  });
+
+  it('centers the application title in the macOS draggable titlebar',async()=>{
+    render(<App/>);
+    const title=await screen.findByText('LogGopher',{selector:'.window-titlebar span'});
+    expect(title.closest('.window-titlebar')).toHaveAttribute('data-wails-drag');
   });
 
   it('selects AWS with the custom platform picker and submits its region',async()=>{

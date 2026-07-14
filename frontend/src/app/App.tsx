@@ -24,7 +24,7 @@ import {
   SaveSettings,
   UpdateProfile,
 } from "../../wailsjs/go/main/App";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { Environment, EventsOn } from "../../wailsjs/runtime/runtime";
 import DateTimeField from "../components/date-time-picker/DateTimeField";
 import { appendSLSResultFilter } from "../features/aliyun-sls/query";
 import LogResults from "../features/log-results/LogResults";
@@ -234,6 +234,9 @@ const emptyForm = {
 
 /** Coordinates connection management, querying, preferences, and Wails events. */
 function App() {
+  const [platform, setPlatform] = useState(() =>
+    navigator.userAgent.includes("Mac") ? "darwin" : "",
+  );
   const [adapters, setAdapters] = useState<Adapter[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [connectionMode, setConnectionMode] = useState<"saved" | "new">("new");
@@ -285,6 +288,12 @@ function App() {
   const queryEditorRef = useRef<HTMLDivElement>(null);
   const queryTextareaRef = useRef<HTMLTextAreaElement>(null);
   const adapterPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void Environment()
+      .then((environment) => setPlatform(environment.platform))
+      .catch(() => setPlatform(""));
+  }, []);
 
   useEffect(() => {
     Bootstrap()
@@ -1083,8 +1092,21 @@ function App() {
     }
   }
 
+  const shellClassName = [
+    "shell",
+    settingsOpen ? "settings-view-active" : "",
+    platform === "darwin" ? "macos-titlebar" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <main className={settingsOpen ? "shell settings-view-active" : "shell"}>
+    <main className={shellClassName}>
+      {platform === "darwin" && (
+        <header className="window-titlebar" data-wails-drag>
+          <span>LogGopher</span>
+        </header>
+      )}
       <section
         className={
           profileId

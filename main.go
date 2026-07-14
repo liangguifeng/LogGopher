@@ -70,7 +70,7 @@ func main() {
 		LogLevel:           wailslogger.INFO,
 		LogLevelProduction: wailslogger.INFO,
 		Mac: &mac.Options{
-			TitleBar:    mac.TitleBarDefault(),
+			TitleBar:    mac.TitleBarHiddenInset(),
 			DisableZoom: false,
 			Preferences: &mac.Preferences{FullscreenEnabled: mac.Enabled},
 		},
