@@ -80,6 +80,10 @@ func TestAppConnectionQueryAndHistoryBoundary(t *testing.T) {
 	if err != nil || reconnected.ProfileID != session.ProfileID {
 		t.Fatalf("ConnectSaved() = %#v, %v", reconnected, err)
 	}
+	savedCredentials, err := app.GetProfileCredentials(session.ProfileID)
+	if err != nil || savedCredentials.AccessKey != "access" || savedCredentials.SecretKey != "secret" {
+		t.Fatalf("GetProfileCredentials() = %#v, %v", savedCredentials, err)
+	}
 	update := input
 	update.Name = "production-renamed"
 	update.AccessKey = ""
@@ -106,6 +110,9 @@ func TestAppRejectsInvalidBoundaryInputs(t *testing.T) {
 	}
 	if err := app.UpdateProfile(0, domain.ConnectionInput{}); err == nil {
 		t.Fatal("UpdateProfile() accepted invalid profile")
+	}
+	if _, err := app.GetProfileCredentials(0); err == nil {
+		t.Fatal("GetProfileCredentials() accepted invalid profile")
 	}
 	if err := app.DeleteProfile(0); err == nil {
 		t.Fatal("DeleteProfile() accepted invalid profile")

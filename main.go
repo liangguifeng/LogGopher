@@ -36,7 +36,8 @@ func main() {
 		appLogger.Error("open storage", "error", err)
 		return
 	}
-	app := NewApp(application.NewService(store, adapter.DefaultRegistry(), credential.NewKeyringStore()), appLogger, logManager.Directory())
+	credentialStore := credential.NewSQLiteStore(store, credential.NewKeyringStore())
+	app := NewApp(application.NewService(store, adapter.DefaultRegistry(), credentialStore), appLogger, logManager.Directory())
 	settings, err := store.Settings()
 	if err != nil {
 		appLogger.Error("load settings", "error", err)

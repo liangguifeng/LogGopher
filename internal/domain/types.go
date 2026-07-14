@@ -46,7 +46,7 @@ func (c ConnectionInput) Validate() error {
 	return nil
 }
 
-// Profile is the non-secret portion of a saved connection.
+// Profile is the frontend-safe portion of a saved connection; persisted credentials are omitted.
 type Profile struct {
 	ID        int64  `json:"id"`
 	AdapterID string `json:"adapterId"`
@@ -54,6 +54,12 @@ type Profile struct {
 	Endpoint  string `json:"endpoint"`
 	Project   string `json:"project"`
 	Region    string `json:"region"`
+}
+
+// ProfileCredentials contains credentials explicitly requested by the connection editor.
+type ProfileCredentials struct {
+	AccessKey string `json:"accessKey"`
+	SecretKey string `json:"secretKey"`
 }
 
 // Bootstrap contains the initial data required to render the application.

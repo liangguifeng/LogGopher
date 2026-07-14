@@ -105,6 +105,10 @@ func TestServiceConnectQueryHistoryAndReconnect(t *testing.T) {
 	if err != nil || reconnected.ProfileID != session.ProfileID || fake.connected.AccessKey != "access" {
 		t.Fatalf("ConnectSaved() = %#v, %v", reconnected, err)
 	}
+	savedCredentials, err := service.ProfileCredentials(session.ProfileID)
+	if err != nil || savedCredentials.AccessKey != "access" || savedCredentials.SecretKey != "secret" {
+		t.Fatalf("ProfileCredentials() = %#v, %v", savedCredentials, err)
+	}
 	bootstrap, err := service.Bootstrap()
 	if err != nil || len(bootstrap.Profiles) != 1 || len(bootstrap.Adapters) != 3 {
 		t.Fatalf("Bootstrap() = %#v, %v", bootstrap, err)
@@ -151,6 +155,9 @@ func TestServiceRejectsUnknownExpiredAndProviderFailures(t *testing.T) {
 	}
 	if err := service.UpdateProfile(0, testConnection()); err == nil {
 		t.Fatal("UpdateProfile() accepted an empty profile ID")
+	}
+	if _, err := service.ProfileCredentials(0); err == nil {
+		t.Fatal("ProfileCredentials() accepted an empty profile ID")
 	}
 	if err := service.DeleteProfile(0); err == nil {
 		t.Fatal("DeleteProfile() accepted an empty profile ID")

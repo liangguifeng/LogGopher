@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -58,7 +59,7 @@ func TestOpenPathProfilesAndMissingProfile(t *testing.T) {
 	defer store.Close()
 	first := domain.ConnectionInput{
 		AdapterID: "aliyun-sls", Name: "production", Endpoint: "https://example.com",
-		Project: "project-a", Region: "cn-hangzhou",
+		Project: "project-a", Region: "cn-hangzhou", AccessKey: "saved-ak", SecretKey: "saved-sk",
 	}
 	firstID, err := store.SaveProfile(first)
 	if err != nil {
@@ -78,6 +79,10 @@ func TestOpenPathProfilesAndMissingProfile(t *testing.T) {
 	}
 	if _, err := store.Profile(secondID + 100); err == nil {
 		t.Fatal("Profile() found a missing profile")
+	}
+	accessKey, secretKey, err := store.Credentials(firstID)
+	if err != nil || accessKey != first.AccessKey || secretKey != first.SecretKey {
+		t.Fatalf("Credentials() = %q, %q, %v", accessKey, secretKey, err)
 	}
 	updated := first
 	updated.Name = "production-renamed"
@@ -107,6 +112,63 @@ func TestOpenPathProfilesAndMissingProfile(t *testing.T) {
 	}
 	if err := store.DeleteProfile(firstID); err == nil {
 		t.Fatal("DeleteProfile() deleted a missing profile")
+	}
+}
+
+func TestCredentialPersistenceAndDeletion(t *testing.T) {
+	store, err := OpenPath(filepath.Join(t.TempDir(), "credentials.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	profileID, err := store.SaveProfile(domain.ConnectionInput{AdapterID: "aws-cloudwatch", Name: "aws", AccessKey: "ak-one", SecretKey: "sk-one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveCredentials(profileID, "ak-two", "sk-two"); err != nil {
+		t.Fatal(err)
+	}
+	accessKey, secretKey, err := store.Credentials(profileID)
+	if err != nil || accessKey != "ak-two" || secretKey != "sk-two" {
+		t.Fatalf("Credentials() = %q, %q, %v", accessKey, secretKey, err)
+	}
+	if err := store.DeleteCredentials(profileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Credentials(profileID); !errors.Is(err, ErrCredentialsNotFound) {
+		t.Fatalf("Credentials() after deletion error = %v", err)
+	}
+}
+
+func TestMigrationAddsCredentialColumnsToLegacyDatabase(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE profiles (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		adapter_id TEXT NOT NULL,
+		name TEXT NOT NULL UNIQUE,
+		endpoint TEXT NOT NULL DEFAULT '',
+		project TEXT NOT NULL DEFAULT '',
+		region TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{db: db}
+	if err := store.migrate(); err != nil {
+		t.Fatal(err)
+	}
+	profileID, err := store.SaveProfile(domain.ConnectionInput{AdapterID: "aliyun-sls", Name: "migrated", AccessKey: "legacy-ak", SecretKey: "legacy-sk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accessKey, secretKey, err := store.Credentials(profileID)
+	if err != nil || accessKey != "legacy-ak" || secretKey != "legacy-sk" {
+		t.Fatalf("migrated credentials = %q, %q, %v", accessKey, secretKey, err)
 	}
 }
 

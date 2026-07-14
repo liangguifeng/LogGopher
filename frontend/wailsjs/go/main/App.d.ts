@@ -10,6 +10,8 @@ export function ConnectSaved(arg1:number):Promise<domain.Session>;
 
 export function DeleteProfile(arg1:number):Promise<void>;
 
+export function GetProfileCredentials(arg1:number):Promise<domain.ProfileCredentials>;
+
 export function Query(arg1:domain.QueryInput):Promise<domain.QueryResult>;
 
 export function QueryHistory(arg1:number,arg2:string,arg3:string):Promise<Array<domain.QueryHistoryItem>>;

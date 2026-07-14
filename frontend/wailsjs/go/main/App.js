@@ -18,6 +18,10 @@ export function DeleteProfile(arg1) {
   return window['go']['main']['App']['DeleteProfile'](arg1);
 }
 
+export function GetProfileCredentials(arg1) {
+  return window['go']['main']['App']['GetProfileCredentials'](arg1);
+}
+
 export function Query(arg1) {
   return window['go']['main']['App']['Query'](arg1);
 }

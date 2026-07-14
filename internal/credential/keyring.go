@@ -9,7 +9,7 @@ import (
 
 const serviceName = "LogGopher"
 
-// Secret contains credentials stored by the operating system credential manager.
+// Secret contains credentials used exclusively by backend adapters.
 type Secret struct {
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`
@@ -25,7 +25,7 @@ type Store interface {
 	Delete(profileID int64) error
 }
 
-// KeyringStore persists credentials in the native operating system keyring.
+// KeyringStore reads credentials saved by releases that used the native operating system keyring.
 type KeyringStore struct{}
 
 // NewKeyringStore creates an operating system backed credential store.

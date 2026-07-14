@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store persists non-secret application metadata in SQLite.
+// ErrCredentialsNotFound indicates that a saved profile has no SQLite credentials yet.
+var ErrCredentialsNotFound = errors.New("credentials not found")
+
+// Store persists application settings, connection profiles, and credentials in SQLite.
 type Store struct{ db *sql.DB }
 
 // Open creates or opens the per-user SQLite database and applies migrations.
@@ -38,6 +42,12 @@ func OpenPath(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if path != ":memory:" {
+		if err := os.Chmod(path, 0o600); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("restrict sqlite permissions: %w", err)
+		}
+	}
 	return s, nil
 }
 
@@ -49,6 +59,8 @@ func (s *Store) migrate() error {
 		endpoint TEXT NOT NULL DEFAULT '',
 		project TEXT NOT NULL DEFAULT '',
 		region TEXT NOT NULL DEFAULT '',
+		access_key TEXT NOT NULL DEFAULT '',
+		secret_key TEXT NOT NULL DEFAULT '',
 		created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
@@ -60,6 +72,9 @@ func (s *Store) migrate() error {
 		updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	INSERT OR IGNORE INTO app_settings(id) VALUES(1)`)
+	if err == nil {
+		err = s.ensureProfileCredentialColumns()
+	}
 	if err == nil {
 		_, err = s.db.Exec(`CREATE TABLE IF NOT EXISTS query_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +97,49 @@ func (s *Store) migrate() error {
 	return nil
 }
 
+// ensureProfileCredentialColumns upgrades databases created before credentials were stored in SQLite.
+func (s *Store) ensureProfileCredentialColumns() error {
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "access_key", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "secret_key", definition: "TEXT NOT NULL DEFAULT ''"},
+	} {
+		exists, err := s.profileColumnExists(column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := s.db.Exec("ALTER TABLE profiles ADD COLUMN " + column.name + " " + column.definition); err != nil {
+				return fmt.Errorf("add profiles.%s: %w", column.name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) profileColumnExists(name string) (bool, error) {
+	rows, err := s.db.Query("PRAGMA table_info(profiles)")
+	if err != nil {
+		return false, fmt.Errorf("inspect profile columns: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var columnName, columnType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, fmt.Errorf("scan profile column: %w", err)
+		}
+		if columnName == name {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 // Settings loads the single persisted settings record.
 func (s *Store) Settings() (domain.Settings, error) {
 	settings := domain.DefaultSettings()
@@ -101,12 +159,13 @@ func (s *Store) SaveSettings(settings domain.Settings) error {
 	return nil
 }
 
-// SaveProfile upserts non-secret connection metadata and returns its stable ID.
+// SaveProfile atomically upserts connection metadata and credentials and returns its stable ID.
 func (s *Store) SaveProfile(in domain.ConnectionInput) (int64, error) {
 	var id int64
-	err := s.db.QueryRow(`INSERT INTO profiles(adapter_id,name,endpoint,project,region) VALUES(?,?,?,?,?)
-		ON CONFLICT(name) DO UPDATE SET adapter_id=excluded.adapter_id,endpoint=excluded.endpoint,project=excluded.project,region=excluded.region,updated_at=CURRENT_TIMESTAMP
-		RETURNING id`, in.AdapterID, in.Name, in.Endpoint, in.Project, in.Region).Scan(&id)
+	err := s.db.QueryRow(`INSERT INTO profiles(adapter_id,name,endpoint,project,region,access_key,secret_key) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(name) DO UPDATE SET adapter_id=excluded.adapter_id,endpoint=excluded.endpoint,project=excluded.project,region=excluded.region,
+		access_key=excluded.access_key,secret_key=excluded.secret_key,updated_at=CURRENT_TIMESTAMP
+		RETURNING id`, in.AdapterID, in.Name, in.Endpoint, in.Project, in.Region, in.AccessKey, in.SecretKey).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("save profile: %w", err)
 	}
@@ -145,17 +204,62 @@ func (s *Store) Profile(id int64) (domain.Profile, error) {
 	return profile, nil
 }
 
-// UpdateProfile replaces non-secret connection metadata for a stable profile ID.
+// UpdateProfile atomically replaces connection metadata and credentials for a stable profile ID.
 func (s *Store) UpdateProfile(id int64, in domain.ConnectionInput) error {
 	result, err := s.db.Exec(`UPDATE profiles
-		SET adapter_id=?,name=?,endpoint=?,project=?,region=?,updated_at=CURRENT_TIMESTAMP
-		WHERE id=?`, in.AdapterID, in.Name, in.Endpoint, in.Project, in.Region, id)
+		SET adapter_id=?,name=?,endpoint=?,project=?,region=?,access_key=?,secret_key=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`, in.AdapterID, in.Name, in.Endpoint, in.Project, in.Region, in.AccessKey, in.SecretKey, id)
 	if err != nil {
 		return fmt.Errorf("update profile: %w", err)
 	}
 	updated, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("read updated profile count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("profile not found")
+	}
+	return nil
+}
+
+// SaveCredentials stores plaintext credentials for a profile without exposing them through Profile.
+func (s *Store) SaveCredentials(profileID int64, accessKey, secretKey string) error {
+	result, err := s.db.Exec("UPDATE profiles SET access_key=?,secret_key=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", accessKey, secretKey, profileID)
+	if err != nil {
+		return fmt.Errorf("save profile credentials: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read saved credential count: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("profile not found")
+	}
+	return nil
+}
+
+// Credentials loads credentials exclusively for backend adapter use.
+func (s *Store) Credentials(profileID int64) (string, string, error) {
+	var accessKey, secretKey string
+	err := s.db.QueryRow("SELECT access_key,secret_key FROM profiles WHERE id=?", profileID).Scan(&accessKey, &secretKey)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && accessKey == "" && secretKey == "") {
+		return "", "", ErrCredentialsNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("load profile credentials: %w", err)
+	}
+	return accessKey, secretKey, nil
+}
+
+// DeleteCredentials clears credentials while leaving profile metadata intact.
+func (s *Store) DeleteCredentials(profileID int64) error {
+	result, err := s.db.Exec("UPDATE profiles SET access_key='',secret_key='',updated_at=CURRENT_TIMESTAMP WHERE id=?", profileID)
+	if err != nil {
+		return fmt.Errorf("delete profile credentials: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read deleted credential count: %w", err)
 	}
 	if updated == 0 {
 		return fmt.Errorf("profile not found")

@@ -46,7 +46,7 @@ func (s *Service) Bootstrap() (domain.Bootstrap, error) {
 // SaveSettings persists validated user preferences.
 func (s *Service) SaveSettings(settings domain.Settings) error { return s.store.SaveSettings(settings) }
 
-// Connect validates an adapter session, saves its profile, and stores credentials separately.
+// Connect validates an adapter session and persists its profile and credentials.
 func (s *Service) Connect(in domain.ConnectionInput) (domain.Session, error) {
 	a, ok := s.registry.Get(in.AdapterID)
 	if !ok {
@@ -98,6 +98,21 @@ func (s *Service) ConnectSaved(profileID int64) (domain.Session, error) {
 	return domain.Session{ProfileID: profileID, Groups: groups}, nil
 }
 
+// ProfileCredentials loads saved credentials for the explicit profile editing flow.
+func (s *Service) ProfileCredentials(profileID int64) (domain.ProfileCredentials, error) {
+	if profileID <= 0 {
+		return domain.ProfileCredentials{}, errors.New("profile is required")
+	}
+	if _, err := s.store.Profile(profileID); err != nil {
+		return domain.ProfileCredentials{}, err
+	}
+	secret, err := s.credentials.Get(profileID)
+	if err != nil {
+		return domain.ProfileCredentials{}, err
+	}
+	return domain.ProfileCredentials{AccessKey: secret.AccessKey, SecretKey: secret.SecretKey}, nil
+}
+
 // UpdateProfile replaces saved metadata and optionally rotates stored credentials.
 func (s *Service) UpdateProfile(profileID int64, in domain.ConnectionInput) error {
 	if profileID <= 0 {
@@ -130,6 +145,7 @@ func (s *Service) UpdateProfile(profileID int64, in domain.ConnectionInput) erro
 		rollback := domain.ConnectionInput{
 			AdapterID: current.AdapterID, Name: current.Name, Endpoint: current.Endpoint,
 			Project: current.Project, Region: current.Region,
+			AccessKey: currentSecret.AccessKey, SecretKey: currentSecret.SecretKey,
 		}
 		_ = s.store.UpdateProfile(profileID, rollback)
 		return err

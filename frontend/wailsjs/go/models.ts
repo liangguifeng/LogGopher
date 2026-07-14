@@ -163,6 +163,20 @@ export namespace domain {
 	    }
 	}
 
+	export class ProfileCredentials {
+	    accessKey: string;
+	    secretKey: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ProfileCredentials(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accessKey = source["accessKey"];
+	        this.secretKey = source["secretKey"];
+	    }
+	}
 	export class QueryHistoryItem {
 	    query: string;
 	    updatedAt: string;

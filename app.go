@@ -75,7 +75,17 @@ func (a *App) ConnectSaved(profileID int64) (domain.Session, error) {
 	return session, nil
 }
 
-// UpdateProfile modifies a saved connection without exposing stored credentials.
+// GetProfileCredentials returns saved credentials only for the explicit profile editor.
+func (a *App) GetProfileCredentials(profileID int64) (domain.ProfileCredentials, error) {
+	credentials, err := a.service.ProfileCredentials(profileID)
+	if err != nil {
+		a.logger.Error("load saved connection credentials", "profile_id", profileID, "error", err)
+		return domain.ProfileCredentials{}, err
+	}
+	return credentials, nil
+}
+
+// UpdateProfile modifies a saved connection with credentials supplied by the editor.
 func (a *App) UpdateProfile(profileID int64, input domain.ConnectionInput) error {
 	if err := a.service.UpdateProfile(profileID, input); err != nil {
 		a.logger.Error("update saved connection", "profile_id", profileID, "adapter_id", input.AdapterID, "error", err)
