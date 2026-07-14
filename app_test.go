@@ -1,5 +1,7 @@
 package main
 
+// This file verifies the Wails boundary without starting a native window.
+
 import (
 	"context"
 	"io"
@@ -125,5 +127,29 @@ func TestAppRejectsInvalidBoundaryInputs(t *testing.T) {
 	}
 	if err := app.SaveSettings(domain.Settings{Theme: "invalid"}); err == nil {
 		t.Fatal("SaveSettings() accepted invalid settings")
+	}
+}
+
+// TestFitInitialWindow verifies that large displays receive the preferred size
+// while narrow displays retain a fully visible, supported window.
+func TestFitInitialWindow(t *testing.T) {
+	tests := []struct {
+		name                  string
+		screenWidth           int
+		screenHeight          int
+		wantWidth, wantHeight int
+	}{
+		{name: "desktop", screenWidth: 2560, screenHeight: 1440, wantWidth: 1280, wantHeight: 800},
+		{name: "portrait", screenWidth: 1080, screenHeight: 1920, wantWidth: 1024, wantHeight: 800},
+		{name: "compact", screenWidth: 1180, screenHeight: 760, wantWidth: 1124, wantHeight: 680},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			width, height := fitInitialWindow(test.screenWidth, test.screenHeight)
+			if width != test.wantWidth || height != test.wantHeight {
+				t.Fatalf("fitInitialWindow() = %dx%d, want %dx%d", width, height, test.wantWidth, test.wantHeight)
+			}
+		})
 	}
 }

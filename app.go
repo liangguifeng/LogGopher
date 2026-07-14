@@ -32,6 +32,43 @@ func (a *App) startup(ctx context.Context) {
 	a.service.Start(ctx)
 }
 
+// domReady brings the main window forward after the webview has finished loading.
+// This also recovers macOS development restarts from a previously hidden window.
+func (a *App) domReady(ctx context.Context) {
+	width, height := preferredWindowWidth, preferredWindowHeight
+	if screens, err := runtime.ScreenGetAll(ctx); err == nil {
+		for _, screen := range screens {
+			if screen.IsCurrent {
+				width, height = fitInitialWindow(screen.Size.Width, screen.Size.Height)
+				break
+			}
+		}
+	}
+	runtime.WindowSetSize(ctx, width, height)
+	runtime.Show(ctx)
+	runtime.WindowCenter(ctx)
+	runtime.WindowShow(ctx)
+}
+
+// fitInitialWindow keeps the preferred desktop size inside the current display.
+// The margins reserve space for the macOS menu bar, Dock, and window chrome.
+func fitInitialWindow(screenWidth, screenHeight int) (int, int) {
+	return fitWindowDimension(preferredWindowWidth, minimumWindowWidth, screenWidth-56),
+		fitWindowDimension(preferredWindowHeight, minimumWindowHeight, screenHeight-96)
+}
+
+// fitWindowDimension clamps one dimension without violating the supported minimum size.
+func fitWindowDimension(preferred, minimum, available int) int {
+	if available < minimum {
+		return minimum
+	}
+	if available < preferred {
+		return available
+	}
+	return preferred
+}
+
+// shutdown closes application resources when the native event loop exits.
 func (a *App) shutdown(ctx context.Context) {
 	a.logger.Info("application shutting down")
 	if err := a.service.Close(); err != nil {
@@ -128,6 +165,7 @@ func (a *App) QueryHistory(profileID int64, group, logstore string) ([]domain.Qu
 	return a.service.QueryHistory(profileID, group, logstore)
 }
 
+// sessionLogstoreCount totals the provider resources exposed by one session.
 func sessionLogstoreCount(session domain.Session) int {
 	total := 0
 	for _, group := range session.Groups {
@@ -148,6 +186,7 @@ func (a *App) SaveSettings(settings domain.Settings) error {
 	return nil
 }
 
+// openLogDirectory reveals structured application logs in the native file manager.
 func (a *App) openLogDirectory() error {
 	a.logger.Info("opening log directory")
 	return logging.OpenDirectory(a.logDirectory)

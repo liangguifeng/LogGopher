@@ -1,3 +1,4 @@
+// Package main composes the Wails desktop shell and application dependencies.
 package main
 
 import (
@@ -17,11 +18,19 @@ import (
 	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
 )
 
+const (
+	preferredWindowWidth  = 1280
+	preferredWindowHeight = 800
+	minimumWindowWidth    = 1024
+	minimumWindowHeight   = 680
+)
+
 // assets contains the production frontend bundled into the desktop binary.
 //
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// main composes infrastructure and starts the native Wails event loop.
 func main() {
 	logManager, err := logging.New()
 	if err != nil {
@@ -49,10 +58,10 @@ func main() {
 	// Create application with options
 	err = wails.Run(&options.App{
 		Title:     "LogGopher",
-		Width:     1440,
-		Height:    900,
-		MinWidth:  1024,
-		MinHeight: 680,
+		Width:     preferredWindowWidth,
+		Height:    preferredWindowHeight,
+		MinWidth:  minimumWindowWidth,
+		MinHeight: minimumWindowHeight,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -67,6 +76,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,

@@ -107,6 +107,7 @@ flowchart LR
 - 2026-07-14：日志资源树从根 `App` 状态中拆出，Project 展开集合改由 memoized `LogstoreTree` 局部维护，避免每次展开/收起重渲染查询编辑器、Histogram 与 JSON 结果树。活动 Project 改用显式 class，移除代价较高的 `:has()` 反向匹配；离屏 Logstore 行启用 `content-visibility` 降低大列表布局和绘制成本。
 - 2026-07-14：三类云 Adapter 共用日志等级归一化器。有效顶层等级优先；顶层为空、无法识别或为 `UNKNOWN` 时，递归解码 JSON string/object/array，并按 `level_name / log_level / severity / level` 搜索嵌套等级。输出统一为 `FATAL/ERROR/WARN/INFO/DEBUG/TRACE`，完全无法识别时固定使用 `INFO`。
 - 2026-07-14：阿里云结果菜单改用控制台一致的 `* and field: value` / `* not field: value` 形式，并在已有 `| SPL` 时将索引过滤插入管道之前。领域日志新增原始正文键 `MessageField`，解决 `content` 被归一化成 `message` 后错误生成 `message.content.type` 的路径漂移。
-- 2026-07-14：补齐 SLS 未索引字段的 Scan/SPL 执行链。结果菜单直接生成 `json_extract_scalar` 谓词；手工输入的简单未索引 `Key:Value` 在服务端明确返回 `ParameterInvalid` 后自动重写并回显 `EffectiveQuery`。Scan 结果禁用普通 Histogram，避免统计口径错误。
+- 2026-07-14：纠正 SLS 未索引字段筛选语义。结果菜单与控制台保持一致，对未索引 JSON 叶子生成 `* and value` / `* not value` 全文检索；手工输入的简单未索引 `Key:Value` 在服务端收到 `ParameterInvalid` 后同样降级为全文关键词并回显 `EffectiveQuery`，不再错误生成 `json_extract_scalar` Scan 谓词。
+- 2026-07-14：Wails 在 `OnDomReady` 解隐藏、居中并显示主窗口，避免 macOS 开发重建继承隐藏状态后只保留 Dock 图标；默认窗口提升为 1280×800，并按当前显示器逻辑尺寸预留系统栏边距后动态钳制，1080px 宽竖屏回落为 1024px，兼顾大屏工作区与副屏可见性。
 - 2026-07-11：补齐应用、文件、编辑、视图、窗口、帮助原生菜单与快捷键。
 - 2026-07-11：重构连接首屏、Adapter 下拉选择、历史连接直连与系统 Keychain 凭证持久化。
