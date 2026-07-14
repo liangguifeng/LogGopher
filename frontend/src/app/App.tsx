@@ -1,6 +1,7 @@
 import {
   FormEvent,
   KeyboardEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -15,6 +16,7 @@ import {
   Connect,
   ConnectSaved,
   DeleteProfile,
+  GetProfileCredentials,
   Query,
   QueryHistory as LoadQueryHistory,
   SaveSettings,
@@ -22,7 +24,9 @@ import {
 } from "../../wailsjs/go/main/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import DateTimeField from "../components/date-time-picker/DateTimeField";
+import { appendSLSResultFilter } from "../features/aliyun-sls/query";
 import LogResults from "../features/log-results/LogResults";
+import LogstoreTree from "../features/log-navigation/LogstoreTree";
 
 /** Adapter metadata rendered by the connection workflow. */
 type Adapter = { id: string; name: string; description: string; ready: boolean };
@@ -40,6 +44,7 @@ type Entry = {
   time: string;
   level: string;
   message: string;
+  messageField?: string;
   fields: Record<string, string>;
 };
 /** Exact provider-side count for one histogram interval. */
@@ -50,6 +55,9 @@ type Result = {
   total: number;
   entries: Entry[];
   histogram: HistogramBucket[];
+  indexedFields: string[];
+  fullTextIndex: boolean;
+  effectiveQuery?: string;
 };
 /** User preferences supported by both the native menu and React UI. */
 type Settings = {
@@ -127,9 +135,11 @@ const messages = {
     project: "Project",
     region: "地域",
     connecting: "正在连接…",
+    loadingConfiguration: "正在加载配置…",
     recent: "最近 15 分钟",
     querying: "查询中…",
     settingsTitle: "偏好设置",
+    back: "返回",
     appearance: "外观",
     system: "跟随系统",
     light: "亮色",
@@ -154,8 +164,9 @@ const messages = {
     editConnection: "修改配置",
     deleteConnection: "删除配置",
     deleteTitle: "删除连接配置",
-    deleteWarning: "配置、查询历史和系统凭证将被永久删除。",
-    keepCredential: "留空则保留原凭证",
+    deleteWarning: "配置、查询历史和已保存凭证将被永久删除。",
+    showSecret: "显示 Secret Key",
+    hideSecret: "隐藏 Secret Key",
     saveChanges: "保存修改",
     savingChanges: "保存中…",
     confirmDelete: "确认删除",
@@ -171,9 +182,11 @@ const messages = {
     project: "Project",
     region: "Region",
     connecting: "Connecting…",
+    loadingConfiguration: "Loading profile…",
     recent: "Last 15 minutes",
     querying: "Searching…",
     settingsTitle: "Preferences",
+    back: "Back",
     appearance: "Appearance",
     system: "System",
     light: "Light",
@@ -198,8 +211,9 @@ const messages = {
     editConnection: "Edit profile",
     deleteConnection: "Delete profile",
     deleteTitle: "Delete connection profile",
-    deleteWarning: "The profile, query history, and system credentials will be permanently deleted.",
-    keepCredential: "Leave blank to keep the current credential",
+    deleteWarning: "The profile, query history, and saved credentials will be permanently deleted.",
+    showSecret: "Show Secret Key",
+    hideSecret: "Hide Secret Key",
     saveChanges: "Save changes",
     savingChanges: "Saving…",
     confirmDelete: "Delete profile",
@@ -229,17 +243,21 @@ function App() {
   const [adapterPickerOpen, setAdapterPickerOpen] = useState(false);
   const [configSwitcherOpen, setConfigSwitcherOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [secretVisible, setSecretVisible] = useState(false);
   const [profileId, setProfileId] = useState(0);
   const [logGroups, setLogGroups] = useState<LogGroup[]>([]);
   const [project, setProject] = useState("");
   const [logstore, setLogstore] = useState("");
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [logSidebarCollapsed, setLogSidebarCollapsed] = useState(false);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [busy, setBusy] = useState(false);
+  const [connectionPending, setConnectionPending] = useState<
+    "saved" | "form" | "edit" | null
+  >(null);
+  const [pendingProfileId, setPendingProfileId] = useState(0);
   const [error, setError] = useState("");
   const [settings, setSettings] = useState<Settings>(defaults);
   const [draftSettings, setDraftSettings] = useState<Settings>(defaults);
@@ -368,6 +386,17 @@ function App() {
     () => profiles.find((profile) => profile.id === profileId),
     [profiles, profileId],
   );
+  const activeAdapter = useMemo(
+    () =>
+      adapters.find(
+        (adapter) => adapter.id === (activeProfile?.adapterId || form.adapterId),
+      ),
+    [activeProfile, adapters, form.adapterId],
+  );
+  const selectedSavedProfile = useMemo(
+    () => profiles.find((profile) => profile.id === savedProfileId),
+    [profiles, savedProfileId],
+  );
   const t = messages[effectiveSettings.language];
   const savedPageSize = 6;
   const filteredProfiles = useMemo(() => {
@@ -465,13 +494,16 @@ function App() {
     return { buckets, counts, max, labels };
   }, [result, timeRange, effectiveSettings.language]);
   const fieldSuggestions = useMemo(() => {
-    const paths = new Set<string>(["level", "message"]);
-    for (const entry of result?.entries || []) {
-      for (const [field, raw] of Object.entries(entry.fields)) {
-        paths.add(field);
-        try {
-          collectFieldPaths(JSON.parse(raw), field, paths);
-        } catch {}
+    const aliyun = activeAdapter?.id === "aliyun-sls";
+    const paths = new Set<string>(aliyun ? result?.indexedFields || [] : ["message"]);
+    if (!aliyun) {
+      for (const entry of result?.entries || []) {
+        for (const [field, raw] of Object.entries(entry.fields)) {
+          paths.add(field);
+          try {
+            collectFieldPaths(JSON.parse(raw), field, paths);
+          } catch {}
+        }
       }
     }
     const token =
@@ -483,12 +515,13 @@ function App() {
       .filter((field) => !token || field.toLowerCase().includes(token))
       .sort((a, b) => a.localeCompare(b))
       .slice(0, 8);
-  }, [result, query]);
+  }, [activeAdapter?.id, result, query]);
 
   /** Saves a new connection or updates the selected saved profile. */
   async function connect(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setConnectionPending("form");
     setError("");
     try {
       if (editingProfileId) {
@@ -501,6 +534,7 @@ function App() {
         setSavedProfileId(editingProfileId);
         setEditingProfileId(0);
         setForm({ ...emptyForm });
+        setSecretVisible(false);
         setConnectionMode("saved");
         return;
       }
@@ -512,22 +546,36 @@ function App() {
       setError(String(e));
     } finally {
       setBusy(false);
+      setConnectionPending(null);
     }
   }
-  /** Opens the connection form with non-secret metadata from a saved profile. */
-  function editSavedProfile(profile: Profile) {
-    setEditingProfileId(profile.id);
-    setForm({
-      adapterId: profile.adapterId,
-      name: profile.name,
-      endpoint: profile.endpoint,
-      accessKey: "",
-      secretKey: "",
-      project: profile.project,
-      region: profile.region,
-    });
+  /** Loads saved credentials and opens the selected profile in the connection editor. */
+  async function editSavedProfile(profile: Profile) {
+    setBusy(true);
+    setConnectionPending("edit");
+    setPendingProfileId(profile.id);
     setError("");
-    setConnectionMode("new");
+    try {
+      const credentials = await GetProfileCredentials(profile.id);
+      setEditingProfileId(profile.id);
+      setForm({
+        adapterId: profile.adapterId,
+        name: profile.name,
+        endpoint: profile.endpoint,
+        accessKey: credentials.accessKey || "",
+        secretKey: credentials.secretKey || "",
+        project: profile.project,
+        region: profile.region,
+      });
+      setSecretVisible(false);
+      setConnectionMode("new");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+      setConnectionPending(null);
+      setPendingProfileId(0);
+    }
   }
   /** Deletes the confirmed profile and refreshes the saved connection list. */
   async function deleteSavedProfile() {
@@ -546,6 +594,7 @@ function App() {
       if (editingProfileId === deleteCandidate.id) {
         setEditingProfileId(0);
         setForm({ ...emptyForm });
+        setSecretVisible(false);
       }
       if (profileId === deleteCandidate.id) resetWorkspace();
       if (!remaining.length) setConnectionMode("new");
@@ -561,6 +610,7 @@ function App() {
   function startNewConnection() {
     setEditingProfileId(0);
     setForm({ ...emptyForm });
+    setSecretVisible(false);
     setError("");
     setConnectionMode("new");
   }
@@ -568,6 +618,7 @@ function App() {
   async function connectSavedProfile(id = savedProfileId) {
     if (!id) return;
     setBusy(true);
+    setConnectionPending("saved");
     setError("");
     try {
       await applySession((await ConnectSaved(id)) as any);
@@ -575,6 +626,7 @@ function App() {
       setError(String(e));
     } finally {
       setBusy(false);
+      setConnectionPending(null);
     }
   }
   /** Applies a backend session and eagerly loads its first logstore. */
@@ -587,7 +639,6 @@ function App() {
     setLogGroups(groups);
     setProject(firstProject);
     setLogstore(firstStore);
-    setExpandedProjects(new Set(firstProject ? [firstProject] : []));
     setLogSidebarCollapsed(false);
     setQuery("");
     setResult(null);
@@ -600,7 +651,6 @@ function App() {
     setLogGroups([]);
     setProject("");
     setLogstore("");
-    setExpandedProjects(new Set());
     setResult(null);
     setCurrentPage(1);
     setError("");
@@ -619,8 +669,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      setResult(
-        (await Query({
+      const nextResult = (await Query({
           profileId: targetProfileID,
           group: targetProject,
           logstore: targetLogstore,
@@ -629,8 +678,10 @@ function App() {
           to: range.to,
           page: targetPage,
           limit: targetPageSize,
-        })) as Result,
-      );
+        })) as Result;
+      setResult(nextResult);
+      if (nextResult.effectiveQuery && nextResult.effectiveQuery !== queryValue)
+        setQuery(nextResult.effectiveQuery);
       setCurrentPage(targetPage);
     } catch (e) {
       setError(String(e));
@@ -719,12 +770,24 @@ function App() {
     }
   }
   /** Adds an include or exclude clause for a clicked result value. */
-  function filterByValue(field: string, value: unknown, exclude: boolean) {
+  function filterByValue(
+    field: string | undefined,
+    displayField: string,
+    value: unknown,
+    exclude: boolean,
+  ) {
+    if (activeAdapter?.id === "aliyun-sls") {
+      const next = appendSLSResultFilter(query, field, displayField, value, exclude);
+      setQuery(next);
+      void executeQuery(profileId, project, logstore, next, timeRange);
+      return;
+    }
     const encoded =
       typeof value === "string"
         ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
         : String(value);
-    const clause = `${field}:${encoded}`;
+    // Other providers retain the existing neutral filter expression format.
+    const clause = field ? `${field}:${encoded}` : encoded;
     const next = [query.trim(), exclude ? `NOT ${clause}` : clause]
       .filter(Boolean)
       .join(" AND ");
@@ -758,7 +821,7 @@ function App() {
     void executeQuery(profileId, project, logstore, query, timeRange, 1, nextPageSize);
   }
   /** Selects a logstore and refreshes its result set. */
-  function selectLogstore(nextProject: string, nextLogstore: string) {
+  const selectLogstore = useCallback((nextProject: string, nextLogstore: string) => {
     setProject(nextProject);
     setLogstore(nextLogstore);
     setQuery("");
@@ -766,7 +829,7 @@ function App() {
     setQueryFavorite(false);
     setResult(null);
     void executeQuery(profileId, nextProject, nextLogstore, "", timeRange);
-  }
+  }, [pageSize, profileId, timeRange]);
   /** Switches directly between saved profiles from the workspace sidebar. */
   async function switchProfile(nextProfileID: number) {
     setConfigSwitcherOpen(false);
@@ -780,6 +843,7 @@ function App() {
     resetWorkspace();
     setConnectionMode("new");
     setForm({ ...emptyForm });
+    setSecretVisible(false);
   }
   const createPreset = (
     key: string,
@@ -991,10 +1055,17 @@ function App() {
   }
   const histogramTooltipRange =
     hoveredBucket === null ? null : histogramBucketRange(hoveredBucket);
-  /** Opens the settings drawer with a reversible draft copy. */
+  /** Opens the standalone settings page with a reversible draft copy. */
   function openSettings() {
     setDraftSettings(settings);
+    setError("");
     setSettingsOpen(true);
+  }
+  /** Returns to the previous workspace and discards unsaved preference changes. */
+  function closeSettings() {
+    setDraftSettings(settings);
+    setError("");
+    setSettingsOpen(false);
   }
   /** Persists the settings draft and applies it to the application. */
   async function savePreferences() {
@@ -1003,7 +1074,6 @@ function App() {
     try {
       await SaveSettings(draftSettings);
       setSettings(draftSettings);
-      setSettingsOpen(false);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1012,7 +1082,7 @@ function App() {
   }
 
   return (
-    <main className="shell">
+    <main className={settingsOpen ? "shell settings-view-active" : "shell"}>
       <section
         className={
           profileId
@@ -1023,66 +1093,52 @@ function App() {
         }
       >
         {profileId > 0 ? (
-          <aside className="sidebar">
-            <div className="section-title">
-              <span>{t.logstores}</span>
+          <aside className="sidebar log-navigation">
+            <header className="log-sidebar-heading">
+              <span>
+                <small>
+                  {effectiveSettings.language === "zh-CN"
+                    ? "日志资源"
+                    : "LOG RESOURCES"}
+                </small>
+                <strong>{t.logstores}</strong>
+              </span>
               <span className="count">
                 {logGroups.reduce((total, group) => total + group.logstores.length, 0)}
               </span>
-            </div>
+            </header>
             {logGroups.length ? (
-              <nav className="logstore-tree" aria-label={t.logstores}>
-                {logGroups.map((group) => {
-                  const expanded = expandedProjects.has(group.name);
-                  return (
-                    <div className="log-group" key={group.name}>
-                      <button
-                        type="button"
-                        className="project-node"
-                        aria-expanded={expanded}
-                        onClick={() =>
-                          setExpandedProjects((current) => {
-                            const next = new Set(current);
-                            if (next.has(group.name)) next.delete(group.name);
-                            else next.add(group.name);
-                            return next;
-                          })
-                        }
-                      >
-                        <svg className={expanded ? "project-chevron expanded" : "project-chevron"} viewBox="0 0 16 16" aria-hidden="true">
-                          <path d="m6 3.5 4.5 4.5L6 12.5" />
-                        </svg>
-                        <svg className="project-icon" viewBox="0 0 18 18" aria-hidden="true">
-                          <path d="M2.5 4.5h5l1.5 2h6.5v7H2.5z" />
-                        </svg>
-                        <span title={group.name}>{group.name}</span>
-                        <small>{group.logstores.length}</small>
-                      </button>
-                      {expanded && (
-                        <div className="log-group-children" role="group">
-                          {group.logstores.map((item) => (
-                            <button
-                              key={`${group.name}\u0000${item}`}
-                              className={group.name === project && item === logstore ? "store tree-store active" : "store tree-store"}
-                              onClick={() => selectLogstore(group.name, item)}
-                            >
-                              <span className="store-icon">▤</span>
-                              <span title={item}>{item}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </nav>
+              <LogstoreTree
+                key={profileId}
+                groups={logGroups}
+                activeGroup={project}
+                activeLogstore={logstore}
+                label={t.logstores}
+                onSelect={selectLogstore}
+              />
             ) : (
               <div className="empty">
-                <span>⌁</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 5.5h16v13H4zM7 9h10M7 12h10M7 15h6" />
+                </svg>
                 <p>{t.emptyStore}</p>
               </div>
             )}
             <div className="sidebar-footer">
+              <div className="sidebar-profile" aria-label={activeProfile?.name || t.saved}>
+                <span className="sidebar-profile-mark" aria-hidden="true">
+                  {adapterText(activeAdapter).name.slice(0, 1) || "L"}
+                </span>
+                <span>
+                  <strong>
+                    {activeProfile?.name?.trim() ||
+                      form.name.trim() ||
+                      project ||
+                      t.unnamedConnection}
+                  </strong>
+                  <small>{adapterText(activeAdapter).name}</small>
+                </span>
+              </div>
               <div
                 className="config-switcher"
                 onBlur={(e) => {
@@ -1101,20 +1157,19 @@ function App() {
                   aria-haspopup="listbox"
                   aria-expanded={configSwitcherOpen}
                 >
-                  <span className="sidebar-action-icon">
-                    <svg viewBox="0 0 20 20" aria-hidden="true">
-                      <path d="M4 6h11m0 0-3-3m3 3-3 3M16 14H5m0 0 3 3m-3-3 3-3" />
-                    </svg>
-                  </span>
+                  <svg className="sidebar-action-icon" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M4 6h11m0 0-3-3m3 3-3 3M16 14H5m0 0 3 3m-3-3 3-3" />
+                  </svg>
                   <span>
                     <strong>
                       {effectiveSettings.language === "zh-CN"
                         ? "切换配置"
                         : "Switch profile"}
                     </strong>
-                    <small>{activeProfile?.name?.trim() || t.saved}</small>
                   </span>
-                  <b>⌃</b>
+                  <svg className="sidebar-action-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="m4 10 4-4 4 4" />
+                  </svg>
                 </button>
                 {configSwitcherOpen && (
                   <div className="config-switcher-menu" role="listbox">
@@ -1144,7 +1199,11 @@ function App() {
                             </strong>
                             <small>{adapterText(adapter).name}</small>
                           </span>
-                          {profile.id === profileId && <em>✓</em>}
+                          {profile.id === profileId && (
+                            <svg className="config-active-check" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="m3.5 8 3 3 6-6" />
+                            </svg>
+                          )}
                         </button>
                       );
                     })}
@@ -1156,11 +1215,9 @@ function App() {
                 className="sidebar-action exit"
                 onClick={exitCurrentProfile}
               >
-                <span className="sidebar-action-icon">
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8m4-3 3-3-3-3m3 3H7" />
-                  </svg>
-                </span>
+                <svg className="sidebar-action-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M8 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8m4-3 3-3-3-3m3 3H7" />
+                </svg>
                 <span>
                   <strong>
                     {effectiveSettings.language === "zh-CN"
@@ -1174,15 +1231,53 @@ function App() {
         ) : null}
         <div className="content">
           {!profileId ? (
-            <section className="connect-view">
-              <div className="intro compact-intro">
-                <h1>{t.connections}</h1>
-              </div>
-              <form className="connect-card" onSubmit={connect}>
-                <div className="connection-tabs" role="tablist">
+            <section className="connect-view connection-manager">
+              <header className="connection-manager-header">
+                <span className="connection-manager-mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M5 6.5h9M5 11h7M5 15.5h5" />
+                    <circle cx="16.5" cy="15.5" r="3.5" />
+                    <path d="m19 18 2 2" />
+                  </svg>
+                </span>
+                <span className="connection-manager-copy">
+                  <h1>{t.connections}</h1>
+                  <small>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "管理并连接多云日志平台"
+                      : "Manage and connect cloud log platforms"}
+                  </small>
+                </span>
+                <button
+                  type="button"
+                  className="connection-settings-button"
+                  onClick={openSettings}
+                  aria-label={t.settingsTitle}
+                  title={t.settingsTitle}
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M8.6 2.5h2.8l.5 1.9c.5.2 1 .5 1.4.8l1.9-.6 1.4 2.4-1.4 1.3c.1.6.1 1.1 0 1.7l1.4 1.3-1.4 2.4-1.9-.6c-.4.4-.9.6-1.4.8l-.5 1.9H8.6l-.5-1.9c-.5-.2-1-.5-1.4-.8l-1.9.6-1.4-2.4L4.8 10a7.2 7.2 0 0 1 0-1.7L3.4 7l1.4-2.4 1.9.6c.4-.4.9-.6 1.4-.8l.5-1.9Z" />
+                    <circle cx="10" cy="9.15" r="2.25" />
+                  </svg>
+                  <span>{t.settingsTitle}</span>
+                </button>
+              </header>
+              <form
+                className="connect-card connection-workbench"
+                onSubmit={connect}
+              >
+                <aside className="connection-navigation">
+                  <strong>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "连接工作台"
+                      : "Connection workspace"}
+                  </strong>
+                  <div className="connection-tabs" role="tablist">
                   <button
+                    id="connection-tab-saved"
                     type="button"
                     role="tab"
+                    aria-controls="connection-panel"
                     aria-selected={connectionMode === "saved"}
                     className={connectionMode === "saved" ? "active" : ""}
                     onClick={() => {
@@ -1192,22 +1287,63 @@ function App() {
                       setConnectionMode("saved");
                     }}
                   >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="M3.5 5.5h13v3h-13zM3.5 11.5h13v3h-13z" />
+                      <path d="M6 7h.1M6 13h.1" />
+                    </svg>
                     {t.saved}
                   </button>
                   <button
+                    id="connection-tab-new"
                     type="button"
                     role="tab"
+                    aria-controls="connection-panel"
                     aria-selected={connectionMode === "new"}
                     className={connectionMode === "new" ? "active" : ""}
                     onClick={startNewConnection}
                   >
-                    {editingProfileId ? t.editConnection : `＋ ${t.newConnection}`}
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="M10 4v12M4 10h12" />
+                    </svg>
+                    {editingProfileId ? t.editConnection : t.newConnection}
                   </button>
-                </div>
+                  </div>
+                </aside>
+                <section
+                  id="connection-panel"
+                  className="connection-pane"
+                  role="tabpanel"
+                  aria-labelledby={
+                    connectionMode === "saved"
+                      ? "connection-tab-saved"
+                      : "connection-tab-new"
+                  }
+                >
+                  <header className="connection-pane-header">
+                    <h2>
+                      {connectionMode === "saved"
+                        ? t.saved
+                        : editingProfileId
+                          ? t.editConnection
+                          : t.newConnection}
+                    </h2>
+                    <p>
+                      {connectionMode === "saved"
+                        ? effectiveSettings.language === "zh-CN"
+                          ? "选择一个配置并进入日志工作区"
+                          : "Select a profile to enter the log workspace"
+                        : effectiveSettings.language === "zh-CN"
+                          ? "填写平台凭证并保存连接"
+                          : "Enter platform credentials and save the connection"}
+                    </p>
+                  </header>
+                  <div className="connection-pane-body">
                 {connectionMode === "saved" ? (
                   <div className="saved-connection-pane">
                     {profiles.length ? (
                       <>
+                        <div className="saved-profile-workbench">
+                          <section className="saved-profile-browser">
                         <div className="saved-profile-tools">
                           <label>
                             <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -1304,13 +1440,29 @@ function App() {
                                   <button
                                     type="button"
                                     onClick={() => editSavedProfile(profile)}
-                                    aria-label={`${t.editConnection} ${profileLabel}`}
-                                    title={t.editConnection}
+                                    disabled={busy}
+                                    aria-label={
+                                      connectionPending === "edit" &&
+                                      pendingProfileId === profile.id
+                                        ? `${t.loadingConfiguration} ${profileLabel}`
+                                        : `${t.editConnection} ${profileLabel}`
+                                    }
+                                    title={
+                                      connectionPending === "edit" &&
+                                      pendingProfileId === profile.id
+                                        ? t.loadingConfiguration
+                                        : t.editConnection
+                                    }
                                   >
-                                    <svg viewBox="0 0 20 20" aria-hidden="true">
-                                      <path d="m4 14.8-.5 2.2 2.2-.5L15.9 6.3l-1.7-1.7Z" />
-                                      <path d="m12.9 5.9 1.7 1.7" />
-                                    </svg>
+                                    {connectionPending === "edit" &&
+                                    pendingProfileId === profile.id ? (
+                                      <span className="button-spinner compact" aria-hidden="true" />
+                                    ) : (
+                                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="m4 14.8-.5 2.2 2.2-.5L15.9 6.3l-1.7-1.7Z" />
+                                        <path d="m12.9 5.9 1.7 1.7" />
+                                      </svg>
+                                    )}
                                   </button>
                                   <button
                                     type="button"
@@ -1362,18 +1514,86 @@ function App() {
                             </button>
                           </div>
                         )}
-                        <button
-                          type="button"
-                          className="primary"
-                          onClick={() => connectSavedProfile()}
-                          disabled={busy || !savedProfileId}
-                        >
-                          {busy
-                            ? t.connecting
-                            : effectiveSettings.language === "zh-CN"
-                              ? "连接"
-                              : "Connect"}
-                        </button>
+                          </section>
+                          <aside className="saved-profile-inspector">
+                            {selectedSavedProfile ? (
+                              <>
+                                <span className="profile-platform" aria-hidden="true">
+                                  {adapterText(
+                                    adapters.find(
+                                      (item) =>
+                                        item.id === selectedSavedProfile.adapterId,
+                                    ),
+                                  ).name.slice(0, 1) || "L"}
+                                </span>
+                                <div className="saved-profile-identity">
+                                  <strong>
+                                    {selectedSavedProfile.name?.trim() ||
+                                      selectedSavedProfile.project ||
+                                      selectedSavedProfile.region ||
+                                      selectedSavedProfile.endpoint ||
+                                      t.unnamedConnection}
+                                  </strong>
+                                  <small>
+                                    {adapterText(
+                                      adapters.find(
+                                        (item) =>
+                                          item.id === selectedSavedProfile.adapterId,
+                                      ),
+                                    ).name || selectedSavedProfile.adapterId}
+                                  </small>
+                                </div>
+                                <dl>
+                                  <div>
+                                    <dt>{t.endpoint}</dt>
+                                    <dd title={selectedSavedProfile.endpoint}>
+                                      {selectedSavedProfile.endpoint || "—"}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt>
+                                      {selectedSavedProfile.region
+                                        ? t.region
+                                        : effectiveSettings.language === "zh-CN"
+                                          ? "项目"
+                                          : "Project"}
+                                    </dt>
+                                    <dd>
+                                      {selectedSavedProfile.region ||
+                                        selectedSavedProfile.project ||
+                                        (effectiveSettings.language === "zh-CN"
+                                          ? "自动发现"
+                                          : "Auto discovery")}
+                                    </dd>
+                                  </div>
+                                </dl>
+                                <button
+                                  type="button"
+                                  className="primary"
+                                  onClick={() => connectSavedProfile()}
+                                  disabled={busy || !savedProfileId}
+                                >
+                                  {connectionPending === "saved" && (
+                                    <span className="button-spinner" aria-hidden="true" />
+                                  )}
+                                  <span>
+                                    {connectionPending === "saved"
+                                      ? t.connecting
+                                      : effectiveSettings.language === "zh-CN"
+                                        ? "连接"
+                                        : "Connect"}
+                                  </span>
+                                </button>
+                              </>
+                            ) : (
+                              <p className="saved-profile-inspector-empty">
+                                {effectiveSettings.language === "zh-CN"
+                                  ? "请选择一个连接配置"
+                                  : "Select a connection profile"}
+                              </p>
+                            )}
+                          </aside>
+                        </div>
                       </>
                     ) : (
                       <div className="no-saved">
@@ -1489,20 +1709,51 @@ function App() {
                             setForm({ ...form, accessKey: e.target.value })
                           }
                           autoComplete="off"
-                          placeholder={editingProfileId ? t.keepCredential : ""}
+                          aria-label={
+                            form.adapterId === "tencent-cls"
+                              ? t.secretId
+                              : t.accessKey
+                          }
                         />
                       </label>
                       <label>
                         {t.secretKey}
-                        <input
-                          type="password"
-                          value={form.secretKey}
-                          onChange={(e) =>
-                            setForm({ ...form, secretKey: e.target.value })
-                          }
-                          autoComplete="new-password"
-                          placeholder={editingProfileId ? t.keepCredential : ""}
-                        />
+                        <span className="credential-input">
+                          <input
+                            type={secretVisible ? "text" : "password"}
+                            value={form.secretKey}
+                            onChange={(e) =>
+                              setForm({ ...form, secretKey: e.target.value })
+                            }
+                            autoComplete={
+                              editingProfileId
+                                ? "current-password"
+                                : "new-password"
+                            }
+                            aria-label={t.secretKey}
+                          />
+                          <button
+                            type="button"
+                            className="credential-visibility"
+                            onClick={() => setSecretVisible((visible) => !visible)}
+                            aria-label={
+                              secretVisible ? t.hideSecret : t.showSecret
+                            }
+                            aria-pressed={secretVisible}
+                            title={secretVisible ? t.hideSecret : t.showSecret}
+                          >
+                            {secretVisible ? (
+                              <svg viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M2.5 3.2 17.5 16.8M8.2 6.2A5.7 5.7 0 0 1 10 5.9c4 0 7 4.1 7 4.1a12.7 12.7 0 0 1-2.2 2.4M11.8 13.8a5.7 5.7 0 0 1-1.8.3c-4 0-7-4.1-7-4.1a12.8 12.8 0 0 1 2.2-2.4" />
+                              </svg>
+                            ) : (
+                              <svg viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M3 10s3-4.1 7-4.1S17 10 17 10s-3 4.1-7 4.1S3 10 3 10Z" />
+                                <circle cx="10" cy="10" r="2.1" />
+                              </svg>
+                            )}
+                          </button>
+                        </span>
                       </label>
                       {(form.adapterId === "tencent-cls" ||
                         form.adapterId === "aws-cloudwatch") && (
@@ -1532,15 +1783,20 @@ function App() {
                       className="primary"
                       disabled={busy || !selected?.ready}
                     >
-                      {busy
-                        ? editingProfileId
-                          ? t.savingChanges
-                          : t.connecting
-                        : editingProfileId
-                          ? t.saveChanges
-                          : effectiveSettings.language === "zh-CN"
-                            ? "保存并连接"
-                            : "Save & Connect"}
+                      {connectionPending === "form" && (
+                        <span className="button-spinner" aria-hidden="true" />
+                      )}
+                      <span>
+                        {connectionPending === "form"
+                          ? editingProfileId
+                            ? t.savingChanges
+                            : t.connecting
+                          : editingProfileId
+                            ? t.saveChanges
+                            : effectiveSettings.language === "zh-CN"
+                              ? "保存并连接"
+                              : "Save & Connect"}
+                      </span>
                     </button>
                   </>
                 )}
@@ -1549,6 +1805,7 @@ function App() {
                     {error}
                   </div>
                 )}
+                  </div>
                 {deleteCandidate && (
                   <div className="profile-delete-backdrop" role="presentation">
                     <div
@@ -1585,6 +1842,7 @@ function App() {
                     </div>
                   </div>
                 )}
+                </section>
               </form>
             </section>
           ) : (
@@ -1705,6 +1963,11 @@ function App() {
                                 );
                             }}
                           />
+                          <i className="time-exact-checkbox" aria-hidden="true">
+                            <svg viewBox="0 0 16 16">
+                              <path d="m3.5 8 3 3 6-6" />
+                            </svg>
+                          </i>
                           <span>{timeText.exact}</span>
                         </label>
                       </div>
@@ -2051,43 +2314,64 @@ function App() {
                 onPageChange={changePage}
                 onPageSizeChange={changePageSize}
                 onFilter={filterByValue}
+                filterableFields={
+                  activeAdapter?.id === "aliyun-sls"
+                    ? result?.indexedFields || []
+                    : undefined
+                }
               />
             </section>
           )}
         </div>
       </section>
       {settingsOpen && (
-        <div
-          className="settings-backdrop"
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setSettingsOpen(false);
-          }}
-        >
-          <section
-            className="settings-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="settings-title"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setSettingsOpen(false);
-            }}
-          >
-            <header>
-              <h2 id="settings-title">{t.settingsTitle}</h2>
-              <button
-                className="close-button"
-                onClick={() => setSettingsOpen(false)}
-                aria-label={t.cancel}
-              >
-                <svg viewBox="0 0 20 20" aria-hidden="true">
-                  <path d="m5 5 10 10M15 5 5 15" />
-                </svg>
-              </button>
-            </header>
-            <div className="settings-body">
+        <section className="settings-page" aria-labelledby="settings-title">
+          <header className="settings-page-header">
+            <button
+              type="button"
+              className="settings-back-button"
+              onClick={closeSettings}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="m12.5 4.5-5.5 5.5 5.5 5.5M7 10h10" />
+              </svg>
+              <span>{t.back}</span>
+            </button>
+            <div>
+              <h1 id="settings-title">{t.settingsTitle}</h1>
+              <small>
+                {effectiveSettings.language === "zh-CN"
+                  ? "自定义应用的外观、语言与显示密度"
+                  : "Customize appearance, language, and display density"}
+              </small>
+            </div>
+          </header>
+          <div className="settings-page-body">
+            <section className="settings-page-content">
+              <header className="settings-section-header">
+                <div>
+                  <h2>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "界面与体验"
+                      : "Interface and experience"}
+                  </h2>
+                  <p>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "调整工作区的视觉呈现，修改会即时预览。"
+                      : "Tune the workspace presentation with an instant preview."}
+                  </p>
+                </div>
+              </header>
+              <div className="settings-preference-list">
               <div className="setting-group">
-                <label>{t.appearance}</label>
+                <div className="setting-copy">
+                  <label>{t.appearance}</label>
+                  <small>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "跟随系统或固定使用亮色、暗色主题"
+                      : "Follow the system or keep a fixed light or dark theme"}
+                  </small>
+                </div>
                 <div className="segmented">
                   {(["system", "light", "dark"] as const).map((v) => (
                     <button
@@ -2103,7 +2387,14 @@ function App() {
                 </div>
               </div>
               <div className="setting-group">
-                <label>{t.language}</label>
+                <div className="setting-copy">
+                  <label>{t.language}</label>
+                  <small>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "切换界面、菜单和提示信息的语言"
+                      : "Change the language used by the interface and menus"}
+                  </small>
+                </div>
                 <div className="segmented two">
                   <button
                     className={
@@ -2128,7 +2419,14 @@ function App() {
                 </div>
               </div>
               <div className="setting-group">
-                <label>{t.density}</label>
+                <div className="setting-copy">
+                  <label>{t.density}</label>
+                  <small>
+                    {effectiveSettings.language === "zh-CN"
+                      ? "控制日志工作区的间距与信息密度"
+                      : "Control spacing and information density in the log workspace"}
+                  </small>
+                </div>
                 <div className="segmented two">
                   <button
                     className={
@@ -2155,14 +2453,15 @@ function App() {
                   </button>
                 </div>
               </div>
-            </div>
-            <footer>
-              <button
-                className="secondary"
-                onClick={() => setSettingsOpen(false)}
-              >
-                {t.cancel}
-              </button>
+              </div>
+              {error && <div className="alert" role="alert">{error}</div>}
+            </section>
+            <footer className="settings-page-footer">
+              <span>
+                {effectiveSettings.language === "zh-CN"
+                  ? "未保存的更改会在返回时撤销"
+                  : "Unsaved changes are discarded when you go back"}
+              </span>
               <button
                 className="primary save-settings"
                 onClick={savePreferences}
@@ -2171,8 +2470,8 @@ function App() {
                 {savingSettings ? t.saving : t.save}
               </button>
             </footer>
-          </section>
-        </div>
+          </div>
+        </section>
       )}
     </main>
   );

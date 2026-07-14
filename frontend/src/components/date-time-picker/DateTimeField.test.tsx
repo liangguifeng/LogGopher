@@ -14,7 +14,7 @@ describe('DateTimeField',()=>{
     expect(heading).toBeInTheDocument();
     await user.click(screen.getByRole('button',{name:'下个月'}));
     expect(screen.getByText(/2026年8月/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole('combobox',{name:'小时'}),'12');
+    await user.click(screen.getByRole('button',{name:'增加小时'}));
     expect(onChange).toHaveBeenCalled();
   });
 
