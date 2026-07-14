@@ -127,7 +127,7 @@ func TestTencentCLSQueryMapsRequestAndNormalizesLogs(t *testing.T) {
 		t.Fatalf("Query() error = %v", err)
 	}
 	request := client.searchRequests[0]
-	if *request.TopicId != "topic-id" || *request.QueryString != "level:warn" ||
+	if *request.TopicId != "topic-id" || *request.QueryString != `"WARN"` ||
 		*request.QuerySyntax != 1 || *request.Sort != "desc" || *request.Limit != 20 || *request.Offset != 20 {
 		t.Fatalf("SearchLog request = %#v", request)
 	}

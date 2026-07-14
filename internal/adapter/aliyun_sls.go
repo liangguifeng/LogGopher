@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,14 +16,12 @@ import (
 )
 
 const aliyunRequestTimeout = 30 * time.Second
-const aliyunQueryFallbackLimit = 8
-
-var aliyunUnindexedKeyPattern = regexp.MustCompile(`(?i)key \(([^)]+)\) is not config as key value config`)
 
 // aliyunSLSClient is the narrow portion of the vendor SDK used by this adapter.
 type aliyunSLSClient interface {
 	ListProjectV2(offset, size int) ([]sls.LogProject, int, int, error)
 	ListLogStore(project string) ([]string, error)
+	GetIndex(project, logstore string) (*sls.Index, error)
 	GetLogsToCompletedV2(project, logstore string, request *sls.GetLogRequest) (*sls.GetLogsResponse, error)
 	GetHistogramsToCompletedV2(
 		project, logstore string,
@@ -139,13 +135,12 @@ func (a *aliyunSLSAdapter) Query(
 		expression = "*"
 	}
 	accurate := true
-	request := &sls.GetLogRequest{
-		From: from.Unix(), To: to.Unix(), Query: expression,
-		Lines: int64(limit), Offset: int64((page - 1) * limit), Reverse: true,
-		IsAccurate: &accurate,
-	}
 	response, effectiveExpression, err := queryAliyunLogs(
-		ctx, client, project, query.Logstore, request,
+		ctx, client, project, query.Logstore, &sls.GetLogRequest{
+			From: from.Unix(), To: to.Unix(), Query: expression,
+			Lines: int64(limit), Offset: int64((page - 1) * limit), Reverse: true,
+			IsAccurate: &accurate,
+		},
 	)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query Alibaba Cloud SLS logs: %w", err)
@@ -159,23 +154,26 @@ func (a *aliyunSLSAdapter) Query(
 
 	total := int(response.Count)
 	buckets := make([]domain.HistogramBucket, 0)
-	histogram, histogramErr := client.GetHistogramsToCompletedV2(
-		project,
-		query.Logstore,
-		&sls.GetHistogramRequest{
-			From: from.Unix(), To: to.Unix(), Query: aliyunSearchExpression(effectiveExpression),
-		},
-	)
-	if err := ctx.Err(); err != nil {
-		return domain.QueryResult{}, err
+	if !aliyunUsesSPL(effectiveExpression) {
+		histogram, histogramErr := client.GetHistogramsToCompletedV2(
+			project,
+			query.Logstore,
+			&sls.GetHistogramRequest{
+				From: from.Unix(), To: to.Unix(), Query: aliyunSearchExpression(effectiveExpression),
+			},
+		)
+		if err := ctx.Err(); err != nil {
+			return domain.QueryResult{}, err
+		}
+		if histogramErr == nil && histogram != nil {
+			total = int(histogram.Count)
+			buckets = normalizeAliyunHistogram(histogram.Histograms)
+		} else if response.Count == int64(limit) {
+			// Preserve a usable next page when histogram permission or indexing is unavailable.
+			total = (page * limit) + 1
+		}
 	}
-	if histogramErr == nil && histogram != nil {
-		total = int(histogram.Count)
-		buckets = normalizeAliyunHistogram(histogram.Histograms)
-	} else if response.Count == int64(limit) {
-		// Preserve a usable next page when histogram permission or indexing is unavailable.
-		total = (page * limit) + 1
-	}
+	indexedFields, fullTextIndex := aliyunIndexFields(client, project, query.Logstore)
 
 	entries := make([]domain.LogEntry, 0, len(response.Logs))
 	for _, log := range response.Logs {
@@ -184,7 +182,33 @@ func (a *aliyunSLSAdapter) Query(
 	return domain.QueryResult{
 		TookMS: time.Since(started).Milliseconds(), Total: total,
 		Entries: entries, Histogram: buckets,
+		IndexedFields: indexedFields, FullTextIndex: fullTextIndex,
+		EffectiveQuery: effectiveExpression,
 	}, nil
+}
+
+// aliyunIndexFields returns only provider-declared field indexes for query assistance.
+func aliyunIndexFields(client aliyunSLSClient, project, logstore string) ([]string, bool) {
+	index, err := client.GetIndex(project, logstore)
+	if err != nil || index == nil {
+		return []string{}, false
+	}
+	fields := make([]string, 0, len(index.Keys))
+	for field, key := range index.Keys {
+		if strings.EqualFold(key.Type, "json") {
+			// A JSON container is not itself a queryable leaf. SLS only accepts
+			// Key:Value for its configured JSON leaf paths.
+			for child, childIndex := range key.JsonKeys {
+				if childIndex != nil {
+					fields = append(fields, field+"."+child)
+				}
+			}
+			continue
+		}
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	return fields, index.Line != nil
 }
 
 // normalizeAliyunHistogram preserves the provider's exact bucket boundaries and counts.
@@ -200,7 +224,7 @@ func normalizeAliyunHistogram(histograms []sls.SingleHistogram) []domain.Histogr
 	return buckets
 }
 
-// queryAliyunLogs retries UI-generated filters as full-text phrases when SLS reports an unindexed key.
+// queryAliyunLogs converts SLS-rejected unindexed clauses into equivalent scan SPL predicates.
 func queryAliyunLogs(
 	ctx context.Context,
 	client aliyunSLSClient,
@@ -208,7 +232,7 @@ func queryAliyunLogs(
 	request *sls.GetLogRequest,
 ) (*sls.GetLogsResponse, string, error) {
 	effectiveExpression := request.Query
-	for attempt := 0; attempt <= aliyunQueryFallbackLimit; attempt++ {
+	for attempt := 0; attempt <= aliyunQueryRewriteLimit; attempt++ {
 		request.Query = effectiveExpression
 		response, err := client.GetLogsToCompletedV2(project, logstore, request)
 		if err == nil {
@@ -217,48 +241,17 @@ func queryAliyunLogs(
 		if contextErr := ctx.Err(); contextErr != nil {
 			return nil, effectiveExpression, contextErr
 		}
-		key, ok := aliyunUnindexedKey(err)
+		field, ok := aliyunUnindexedKey(err)
 		if !ok {
 			return nil, effectiveExpression, err
 		}
-		next, rewritten := rewriteAliyunUnindexedFilter(effectiveExpression, key)
+		next, rewritten := rewriteAliyunUnindexedFilterAsSPL(effectiveExpression, field)
 		if !rewritten || next == effectiveExpression {
 			return nil, effectiveExpression, err
 		}
 		effectiveExpression = next
 	}
 	return nil, effectiveExpression, errors.New("too many unindexed Alibaba Cloud SLS filter fields")
-}
-
-// aliyunUnindexedKey extracts the field named by SLS in a ParameterInvalid response.
-func aliyunUnindexedKey(err error) (string, bool) {
-	var sdkError *sls.Error
-	if !errors.As(err, &sdkError) || sdkError.Code != "ParameterInvalid" {
-		return "", false
-	}
-	match := aliyunUnindexedKeyPattern.FindStringSubmatch(sdkError.Message)
-	if len(match) != 2 || strings.TrimSpace(match[1]) == "" {
-		return "", false
-	}
-	return strings.TrimSpace(match[1]), true
-}
-
-// rewriteAliyunUnindexedFilter changes key:value into a value-only phrase for the reported key.
-func rewriteAliyunUnindexedFilter(expression, key string) (string, bool) {
-	quotedKey := regexp.QuoteMeta(key)
-	clause := regexp.MustCompile(
-		`(?i)(^|\s+AND\s+)(NOT\s+)?(?:"` + quotedKey + `"|` + quotedKey + `)\s*:\s*("(?:\\.|[^"])*"|[^\s|)]+)`,
-	)
-	rewritten := false
-	result := clause.ReplaceAllStringFunc(expression, func(raw string) string {
-		parts := clause.FindStringSubmatch(raw)
-		if len(parts) != 4 {
-			return raw
-		}
-		rewritten = true
-		return parts[1] + parts[2] + parts[3]
-	})
-	return result, rewritten
 }
 
 // client validates the connection metadata before constructing a request-scoped SDK client.
@@ -270,32 +263,6 @@ func (a *aliyunSLSAdapter) client(ctx context.Context, input domain.ConnectionIn
 		return nil, err
 	}
 	return a.newClient(ctx, input)
-}
-
-// newAliyunSDKClient configures credentials, cancellation, and bounded retries on the official SDK.
-func newAliyunSDKClient(ctx context.Context, input domain.ConnectionInput) (aliyunSLSClient, error) {
-	provider := sls.NewStaticCredentialsProvider(input.AccessKey, input.SecretKey, "")
-	client := sls.CreateNormalInterfaceV2(strings.TrimSpace(input.Endpoint), provider)
-	client.SetHTTPClient(&http.Client{
-		Transport: contextRoundTripper{ctx: ctx, base: http.DefaultTransport},
-		Timeout:   aliyunRequestTimeout,
-	})
-	client.SetRetryTimeout(aliyunRequestTimeout)
-	return client, nil
-}
-
-// contextRoundTripper binds SDK requests to the Wails lifecycle context.
-type contextRoundTripper struct {
-	ctx  context.Context
-	base http.RoundTripper
-}
-
-// RoundTrip forwards a cloned request that is cancelled with the adapter operation.
-func (transport contextRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	if err := transport.ctx.Err(); err != nil {
-		return nil, err
-	}
-	return transport.base.RoundTrip(request.Clone(transport.ctx))
 }
 
 // validateAliyunInput rejects incomplete or structurally invalid SLS connection settings.
@@ -357,14 +324,15 @@ func normalizeAliyunLog(log map[string]string) domain.LogEntry {
 	if messageKey != "" {
 		delete(fields, messageKey)
 	}
-	if level == "" {
-		level = "UNKNOWN"
-	}
+	level = resolveLogLevel(level, message, log)
 	if message == "" {
 		encoded, _ := json.Marshal(log)
 		message = string(encoded)
 	}
-	return domain.LogEntry{Time: timestamp, Level: strings.ToUpper(level), Message: message, Fields: fields}
+	return domain.LogEntry{
+		Time: timestamp, Level: level, Message: message,
+		MessageField: messageKey, Fields: fields,
+	}
 }
 
 // aliyunLogTime maps SLS system time fields into RFC3339Nano.

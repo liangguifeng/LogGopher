@@ -86,7 +86,7 @@ func (a *awsCloudWatchAdapter) Query(
 			EndTime: aws.Int64(to.UnixMilli()), Limit: aws.Int32(int32(limit)),
 			NextToken: token, StartFromHead: aws.Bool(false),
 		}
-		if pattern := strings.TrimSpace(query.Query); pattern != "" {
+		if pattern := rewriteSemanticLevelFilters(strings.TrimSpace(query.Query)); pattern != "" {
 			request.FilterPattern = aws.String(pattern)
 		}
 		output, err = client.FilterLogEvents(ctx, request)
@@ -211,23 +211,19 @@ func normalizeAWSEvent(event awstypes.FilteredLogEvent) domain.LogEntry {
 	if event.IngestionTime != nil {
 		fields["@ingestionTime"] = time.UnixMilli(*event.IngestionTime).UTC().Format(time.RFC3339Nano)
 	}
-	level := "INFO"
+	level := ""
 	var object map[string]any
 	if json.Unmarshal([]byte(message), &object) == nil {
 		for key, value := range object {
 			encoded, _ := json.Marshal(value)
 			fields[key] = strings.Trim(string(encoded), `"`)
 		}
-		for _, key := range []string{"level", "severity", "logLevel"} {
-			if value, ok := object[key]; ok {
-				level = strings.ToUpper(fmt.Sprint(value))
-				break
-			}
-		}
+		level = resolveLogLevel("", object)
 		if value, ok := object["message"].(string); ok {
 			message = value
 		}
 	}
+	level = resolveLogLevel(level, message)
 	timestamp := ""
 	if event.Timestamp != nil {
 		timestamp = time.UnixMilli(*event.Timestamp).UTC().Format(time.RFC3339Nano)

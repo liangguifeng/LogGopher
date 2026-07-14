@@ -191,7 +191,11 @@ func (s *Service) Query(q domain.QueryInput) (domain.QueryResult, error) {
 	a, _ := s.registry.Get(in.AdapterID)
 	result, err := a.Query(s.ctx, in, q)
 	if err == nil {
-		_ = s.store.SaveQueryHistory(q.ProfileID, queryHistoryScope(q.Group, q.Logstore), q.Query)
+		historyQuery := q.Query
+		if strings.TrimSpace(result.EffectiveQuery) != "" {
+			historyQuery = result.EffectiveQuery
+		}
+		_ = s.store.SaveQueryHistory(q.ProfileID, queryHistoryScope(q.Group, q.Logstore), historyQuery)
 	}
 	return result, err
 }

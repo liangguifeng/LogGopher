@@ -121,6 +121,25 @@ func TestAWSQueryMapsPageAndNormalizesJSONEvent(t *testing.T) {
 	}
 }
 
+func TestAWSQueryRewritesNormalizedLevelFilter(t *testing.T) {
+	client := &fakeAWSClient{filterOutputs: []*cloudwatchlogs.FilterLogEventsOutput{{}}}
+	adapter := &awsCloudWatchAdapter{
+		newClient: func(context.Context, domain.ConnectionInput) (awsCloudWatchClient, error) {
+			return client, nil
+		},
+	}
+	_, err := adapter.Query(context.Background(), awsTestInput(), domain.QueryInput{
+		Group: "us-east-1", Logstore: "/aws/lambda/orders", Query: `level:"WARN"`,
+		From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if got := aws.ToString(client.filterInputs[0].FilterPattern); got != `"WARN"` {
+		t.Fatalf("FilterPattern = %q, want %q", got, `"WARN"`)
+	}
+}
+
 func TestAWSAdapterErrorsAndCancellation(t *testing.T) {
 	client := &fakeAWSClient{describeErr: io.EOF}
 	adapter := &awsCloudWatchAdapter{newClient: func(context.Context, domain.ConnectionInput) (awsCloudWatchClient, error) {

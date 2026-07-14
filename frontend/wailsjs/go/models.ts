@@ -134,6 +134,7 @@ export namespace domain {
 	    time: string;
 	    level: string;
 	    message: string;
+	    messageField: string;
 	    fields: Record<string, string>;
 
 	    static createFrom(source: any = {}) {
@@ -145,6 +146,7 @@ export namespace domain {
 	        this.time = source["time"];
 	        this.level = source["level"];
 	        this.message = source["message"];
+	        this.messageField = source["messageField"];
 	        this.fields = source["fields"];
 	    }
 	}
@@ -222,6 +224,9 @@ export namespace domain {
 	    total: number;
 	    entries: LogEntry[];
 	    histogram: HistogramBucket[];
+	    indexedFields: string[];
+	    fullTextIndex: boolean;
+	    effectiveQuery: string;
 
 	    static createFrom(source: any = {}) {
 	        return new QueryResult(source);
@@ -233,6 +238,9 @@ export namespace domain {
 	        this.total = source["total"];
 	        this.entries = this.convertValues(source["entries"], LogEntry);
 	        this.histogram = this.convertValues(source["histogram"], HistogramBucket);
+	        this.indexedFields = source["indexedFields"];
+	        this.fullTextIndex = source["fullTextIndex"];
+	        this.effectiveQuery = source["effectiveQuery"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -98,6 +98,7 @@ func (a *tencentCLSAdapter) Query(
 		page = 1
 	}
 	expression := strings.TrimSpace(query.Query)
+	expression = rewriteSemanticLevelFilters(expression)
 	response, err := client.SearchLogWithContext(ctx, newTencentSearchRequest(
 		topicID, expression, from, to, int64(limit), uint64((page-1)*limit),
 	))
@@ -435,9 +436,7 @@ func normalizeTencentLog(log *cls.LogInfo) domain.LogEntry {
 	messageKey, message := caseInsensitiveTencentField(fields, "message", "msg", "content", "body", "__CONTENT__")
 	delete(fields, levelKey)
 	delete(fields, messageKey)
-	if level == "" {
-		level = "UNKNOWN"
-	}
+	level = resolveLogLevel(level, message, fields)
 	if message == "" {
 		if log.RawLog != nil && *log.RawLog != "" {
 			message = *log.RawLog
@@ -449,7 +448,7 @@ func normalizeTencentLog(log *cls.LogInfo) domain.LogEntry {
 	if log.Time != nil {
 		timestamp = time.UnixMilli(*log.Time).UTC().Format(time.RFC3339Nano)
 	}
-	return domain.LogEntry{Time: timestamp, Level: strings.ToUpper(level), Message: message, Fields: fields}
+	return domain.LogEntry{Time: timestamp, Level: level, Message: message, Fields: fields}
 }
 
 func parseTencentRange(fromValue, toValue string) (time.Time, time.Time, error) {

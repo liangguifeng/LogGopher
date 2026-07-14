@@ -92,13 +92,14 @@ func TestServiceConnectQueryHistoryAndReconnect(t *testing.T) {
 	if credentials.items[session.ProfileID].SecretKey != "secret" {
 		t.Fatalf("credentials = %#v", credentials.items)
 	}
+	fake.result.EffectiveQuery = "* | where level = 'error'"
 	query := domain.QueryInput{ProfileID: session.ProfileID, Group: "group-a", Logstore: "app", Query: "level:error"}
 	result, err := service.Query(query)
 	if err != nil || result.Total != 1 || fake.queried.Query != query.Query {
 		t.Fatalf("Query() = %#v, %v", result, err)
 	}
 	history, err := service.QueryHistory(session.ProfileID, "group-a", "app")
-	if err != nil || len(history) != 1 || history[0].Query != query.Query {
+	if err != nil || len(history) != 1 || history[0].Query != fake.result.EffectiveQuery {
 		t.Fatalf("QueryHistory() = %#v, %v", history, err)
 	}
 	reconnected, err := service.ConnectSaved(session.ProfileID)

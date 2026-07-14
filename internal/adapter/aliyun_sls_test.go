@@ -25,6 +25,8 @@ type fakeAliyunClient struct {
 	logsErrors       []error
 	histogram        *sls.GetHistogramsResponse
 	histogramErr     error
+	index            *sls.Index
+	indexErr         error
 	logRequest       *sls.GetLogRequest
 	logRequests      []*sls.GetLogRequest
 	histogramRequest *sls.GetHistogramRequest
@@ -50,11 +52,16 @@ func (client *fakeAliyunClient) ListLogStore(project string) ([]string, error) {
 	return client.logstores, client.listErr
 }
 
+func (client *fakeAliyunClient) GetIndex(project, logstore string) (*sls.Index, error) {
+	client.project, client.logstore = project, logstore
+	return client.index, client.indexErr
+}
+
 func (client *fakeAliyunClient) GetLogsToCompletedV2(project, logstore string, request *sls.GetLogRequest) (*sls.GetLogsResponse, error) {
 	client.project, client.logstore, client.logRequest = project, logstore, request
 	requestCopy := *request
 	client.logRequests = append(client.logRequests, &requestCopy)
-	if len(client.logsErrors) >= len(client.logRequests) {
+	if len(client.logRequests) <= len(client.logsErrors) {
 		return nil, client.logsErrors[len(client.logRequests)-1]
 	}
 	return client.logs, client.logsErr
@@ -141,6 +148,9 @@ func TestAliyunSLSQueryMapsPaginationAndNormalizesLogs(t *testing.T) {
 	if entry.Level != "WARN" || entry.Message != "upstream slow" || entry.Fields["service"] != "gateway" {
 		t.Fatalf("normalized entry = %#v", entry)
 	}
+	if entry.MessageField != "message" {
+		t.Fatalf("message field = %q", entry.MessageField)
+	}
 	if entry.Time != "2026-07-12T01:00:00.123Z" {
 		t.Fatalf("normalized time = %q", entry.Time)
 	}
@@ -166,35 +176,79 @@ func TestAliyunSLSQueryUsesWildcardAndCapsPageSize(t *testing.T) {
 	}
 }
 
-func TestAliyunSLSQueryFallsBackForUnindexedFilter(t *testing.T) {
+func TestAliyunSLSQueryKeepsProviderNativeLevelFilter(t *testing.T) {
 	fake := &fakeAliyunClient{
-		logs: &sls.GetLogsResponse{Logs: []map[string]string{{
-			"__time__": "1783818000", "message": "request accepted",
-		}}},
-		logsErrors: []error{&sls.Error{
-			HTTPCode: 400, Code: "ParameterInvalid",
-			Message: "key (request) is not config as key value config,if symbol : is in your log,please wrap : with quotation mark \"",
-		}},
-		histogram: &sls.GetHistogramsResponse{Count: 1},
+		logs:      &sls.GetLogsResponse{},
+		histogram: &sls.GetHistogramsResponse{},
+		index: &sls.Index{Keys: map[string]sls.IndexKey{
+			"message": {Type: "json", JsonKeys: map[string]*sls.JsonKey{
+				"level_name": {Type: "text"},
+			}},
+		}, Line: &sls.IndexLine{}},
 	}
-	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) {
-		return fake, nil
-	}}
-	_, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
-		Group: "project-a", Logstore: "access", Query: `service:"gateway" AND request:"POST /orders:submit"`,
+	adapter := &aliyunSLSAdapter{
+		newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) {
+			return fake, nil
+		},
+	}
+	result, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
+		Group: "project-a", Logstore: "access", Query: `service:"api" AND level:"WARN"`,
 		From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 20,
 	})
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
-	if len(fake.logRequests) != 2 {
-		t.Fatalf("GetLogs calls = %d, want 2", len(fake.logRequests))
+	want := `service:"api" AND level:"WARN"`
+	if fake.logRequest.Query != want || fake.histogramRequest.Query != want {
+		t.Fatalf("native level requests = logs %q, histogram %q", fake.logRequest.Query, fake.histogramRequest.Query)
 	}
-	if got := fake.logRequests[1].Query; got != `service:"gateway" AND "POST /orders:submit"` {
-		t.Fatalf("fallback query = %q", got)
+	if len(result.IndexedFields) != 1 || result.IndexedFields[0] != "message.level_name" || !result.FullTextIndex {
+		t.Fatalf("index metadata = fields %#v, full text %v", result.IndexedFields, result.FullTextIndex)
 	}
-	if got := fake.histogramRequest.Query; got != `service:"gateway" AND "POST /orders:submit"` {
-		t.Fatalf("histogram query = %q", got)
+}
+
+func TestAliyunIndexFieldsDistinguishesTextFieldsFromJSONLeaves(t *testing.T) {
+	fake := &fakeAliyunClient{index: &sls.Index{Keys: map[string]sls.IndexKey{
+		"message": {Type: "json", JsonKeys: map[string]*sls.JsonKey{
+			"level_name": {Type: "text"},
+			"ignored":    nil,
+		}},
+		"service": {Type: "text"},
+	}}}
+
+	fields, fullText := aliyunIndexFields(fake, "project-a", "access")
+	if fullText || len(fields) != 2 || fields[0] != "message.level_name" || fields[1] != "service" {
+		t.Fatalf("aliyunIndexFields() = %#v, %v", fields, fullText)
+	}
+}
+
+func TestAliyunSLSQueryRewritesUnindexedFieldAsScanSPL(t *testing.T) {
+	fake := &fakeAliyunClient{
+		logs: &sls.GetLogsResponse{Count: 1, Logs: []map[string]string{{
+			"__time__": "1783818000", "content": `{"type":"system"}`,
+		}}},
+		logsErrors: []error{&sls.Error{
+			HTTPCode: 400, Code: "ParameterInvalid",
+			Message: "key (content.type) is not config as key value config,if symbol : is in your log,please wrap : with quotation mark \"",
+		}},
+	}
+	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) {
+		return fake, nil
+	}}
+	result, err := adapter.Query(context.Background(), aliyunTestInput(), domain.QueryInput{
+		Group: "project-a", Logstore: "access", Query: `* not content.type: business`,
+		From: "2026-07-12T00:00:00Z", To: "2026-07-12T01:00:00Z", Page: 1, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	want := "* | where json_extract_scalar(content, '$.type') is null or " +
+		"json_extract_scalar(content, '$.type') != 'business'"
+	if len(fake.logRequests) != 2 || fake.logRequests[1].Query != want || result.EffectiveQuery != want {
+		t.Fatalf("scan requests = %#v, effective query = %q", fake.logRequests, result.EffectiveQuery)
+	}
+	if fake.histogramRequest != nil || len(result.Histogram) != 0 {
+		t.Fatalf("scan query must not use index histogram: request %#v, result %#v", fake.histogramRequest, result.Histogram)
 	}
 }
 
@@ -258,5 +312,15 @@ func TestAliyunLogTimeAcceptsRFC3339(t *testing.T) {
 	want := time.Date(2026, 7, 12, 1, 2, 3, 0, time.UTC).Format(time.RFC3339Nano)
 	if got := aliyunLogTime(map[string]string{"@timestamp": want}); got != want {
 		t.Fatalf("aliyunLogTime() = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeAliyunLogRetainsOriginalContentField(t *testing.T) {
+	entry := normalizeAliyunLog(map[string]string{
+		"__time__": "1783818000",
+		"content":  `{"type":"business","message":"accepted"}`,
+	})
+	if entry.MessageField != "content" || entry.Message != `{"type":"business","message":"accepted"}` {
+		t.Fatalf("normalized content entry = %#v", entry)
 	}
 }

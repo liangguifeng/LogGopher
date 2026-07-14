@@ -121,10 +121,11 @@ type QueryInput struct {
 
 // LogEntry is the normalized representation of a vendor log record.
 type LogEntry struct {
-	Time    string            `json:"time"`
-	Level   string            `json:"level"`
-	Message string            `json:"message"`
-	Fields  map[string]string `json:"fields"`
+	Time         string            `json:"time"`
+	Level        string            `json:"level"` // Canonical FATAL, ERROR, WARN, INFO, DEBUG, or TRACE value.
+	Message      string            `json:"message"`
+	MessageField string            `json:"messageField"` // Original provider field normalized into Message.
+	Fields       map[string]string `json:"fields"`
 }
 
 // HistogramBucket represents the exact provider-side count for one time interval.
@@ -136,10 +137,13 @@ type HistogramBucket struct {
 
 // QueryResult contains one page of normalized log records.
 type QueryResult struct {
-	TookMS    int64             `json:"tookMs"`
-	Total     int               `json:"total"`
-	Entries   []LogEntry        `json:"entries"`
-	Histogram []HistogramBucket `json:"histogram"`
+	TookMS         int64             `json:"tookMs"`
+	Total          int               `json:"total"`
+	Entries        []LogEntry        `json:"entries"`
+	Histogram      []HistogramBucket `json:"histogram"`
+	IndexedFields  []string          `json:"indexedFields"`
+	FullTextIndex  bool              `json:"fullTextIndex"`
+	EffectiveQuery string            `json:"effectiveQuery"`
 }
 
 // QueryHistoryItem represents a recently executed query persisted in SQLite.
