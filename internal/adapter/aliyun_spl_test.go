@@ -1,5 +1,7 @@
 package adapter
 
+// This file locks the SLS fallback rewrite and pipeline parsing semantics.
+
 import (
 	"errors"
 	"testing"
@@ -7,7 +9,7 @@ import (
 	sls "github.com/aliyun/aliyun-log-go-sdk"
 )
 
-func TestRewriteAliyunUnindexedFilterAsSPL(t *testing.T) {
+func TestRewriteAliyunUnindexedFilterAsFullText(t *testing.T) {
 	tests := []struct {
 		name       string
 		expression string
@@ -18,35 +20,34 @@ func TestRewriteAliyunUnindexedFilterAsSPL(t *testing.T) {
 			name:       "exclude nested json field",
 			expression: "* not content.type: business",
 			field:      "content.type",
-			want: "* | where json_extract_scalar(content, '$.type') is null or " +
-				"json_extract_scalar(content, '$.type') != 'business'",
+			want:       "* not business",
 		},
 		{
 			name:       "include before existing pipeline",
 			expression: "service: api and content.type: \"member change\" | project content",
 			field:      "content.type",
-			want:       "service: api | where json_extract_scalar(content, '$.type') = 'member change' | project content",
+			want:       `service: api and "member change" | project content`,
 		},
 		{
 			name:       "top level field",
 			expression: "request: POST",
 			field:      "request",
-			want:       "* | where request = 'POST'",
+			want:       "* and POST",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, ok := rewriteAliyunUnindexedFilterAsSPL(test.expression, test.field)
+			got, ok := rewriteAliyunUnindexedFilterAsFullText(test.expression, test.field)
 			if !ok || got != test.want {
-				t.Fatalf("rewriteAliyunUnindexedFilterAsSPL() = %q, %v; want %q", got, ok, test.want)
+				t.Fatalf("rewriteAliyunUnindexedFilterAsFullText() = %q, %v; want %q", got, ok, test.want)
 			}
 		})
 	}
 }
 
-func TestRewriteAliyunUnindexedFilterAsSPLRejectsAmbiguousOR(t *testing.T) {
+func TestRewriteAliyunUnindexedFilterAsFullTextRejectsAmbiguousOR(t *testing.T) {
 	expression := "service: api or content.type: business"
-	if got, ok := rewriteAliyunUnindexedFilterAsSPL(expression, "content.type"); ok || got != expression {
+	if got, ok := rewriteAliyunUnindexedFilterAsFullText(expression, "content.type"); ok || got != expression {
 		t.Fatalf("ambiguous rewrite = %q, %v", got, ok)
 	}
 }

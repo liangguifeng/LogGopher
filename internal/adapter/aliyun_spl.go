@@ -3,7 +3,6 @@ package adapter
 import (
 	"errors"
 	"regexp"
-	"strconv"
 	"strings"
 
 	sls "github.com/aliyun/aliyun-log-go-sdk"
@@ -13,7 +12,6 @@ const aliyunQueryRewriteLimit = 8
 
 var (
 	aliyunUnindexedKeyPattern = regexp.MustCompile(`(?i)key \(([^)]+)\) is not config as key value config`)
-	aliyunSimpleFieldPattern  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // aliyunUnindexedKey extracts the field rejected by SLS as an unindexed Key:Value query.
@@ -29,8 +27,8 @@ func aliyunUnindexedKey(err error) (string, bool) {
 	return strings.TrimSpace(match[1]), true
 }
 
-// rewriteAliyunUnindexedFilterAsSPL moves one rejected field clause into a scan predicate.
-func rewriteAliyunUnindexedFilterAsSPL(expression, field string) (string, bool) {
+// rewriteAliyunUnindexedFilterAsFullText matches the SLS console fallback for an unindexed field.
+func rewriteAliyunUnindexedFilterAsFullText(expression, field string) (string, bool) {
 	search, pipeline := splitAliyunExpression(expression)
 	if strings.Contains(strings.ToLower(search), " or ") {
 		// Rewriting an OR branch requires a complete expression parser to preserve precedence.
@@ -46,45 +44,19 @@ func rewriteAliyunUnindexedFilterAsSPL(expression, field string) (string, bool) 
 		return expression, false
 	}
 	value := strings.TrimSpace(match[3])
-	if strings.HasPrefix(value, `"`) {
-		decoded, err := strconv.Unquote(value)
-		if err != nil {
-			return expression, false
-		}
-		value = decoded
-	}
 	remaining := strings.TrimSpace(clause.ReplaceAllString(search, ""))
 	if remaining == "" {
 		remaining = "*"
 	}
-	predicate := aliyunSPLPredicate(field, value, strings.TrimSpace(match[2]) != "")
+	operator := "and"
+	if strings.TrimSpace(match[2]) != "" {
+		operator = "not"
+	}
+	filtered := remaining + " " + operator + " " + value
 	if strings.TrimSpace(pipeline) == "" {
-		return remaining + " | where " + predicate, true
+		return filtered, true
 	}
-	return remaining + " | where " + predicate + " | " + strings.TrimSpace(pipeline), true
-}
-
-// aliyunSPLPredicate compares an unindexed raw field or a nested JSON value as text.
-func aliyunSPLPredicate(field, value string, exclude bool) string {
-	root, path, nested := strings.Cut(field, ".")
-	reference := aliyunSPLField(root)
-	if nested {
-		jsonPath := strings.ReplaceAll("$."+path, "'", "''")
-		reference = "json_extract_scalar(" + reference + ", '" + jsonPath + "')"
-	}
-	literal := "'" + strings.ReplaceAll(value, "'", "''") + "'"
-	if exclude {
-		return reference + " is null or " + reference + " != " + literal
-	}
-	return reference + " = " + literal
-}
-
-// aliyunSPLField quotes raw field names that are not simple SPL identifiers.
-func aliyunSPLField(field string) string {
-	if aliyunSimpleFieldPattern.MatchString(field) {
-		return field
-	}
-	return `"` + strings.ReplaceAll(field, `"`, `""`) + `"`
+	return filtered + " | " + strings.TrimSpace(pipeline), true
 }
 
 // splitAliyunExpression separates the index query from the first pipeline outside quotes.

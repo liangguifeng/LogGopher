@@ -1,5 +1,7 @@
 package adapter
 
+// This file exercises SLS request mapping, pagination, cancellation, and normalization.
+
 import (
 	"context"
 	"errors"
@@ -222,7 +224,7 @@ func TestAliyunIndexFieldsDistinguishesTextFieldsFromJSONLeaves(t *testing.T) {
 	}
 }
 
-func TestAliyunSLSQueryRewritesUnindexedFieldAsScanSPL(t *testing.T) {
+func TestAliyunSLSQueryRewritesUnindexedFieldAsFullText(t *testing.T) {
 	fake := &fakeAliyunClient{
 		logs: &sls.GetLogsResponse{Count: 1, Logs: []map[string]string{{
 			"__time__": "1783818000", "content": `{"type":"system"}`,
@@ -231,6 +233,7 @@ func TestAliyunSLSQueryRewritesUnindexedFieldAsScanSPL(t *testing.T) {
 			HTTPCode: 400, Code: "ParameterInvalid",
 			Message: "key (content.type) is not config as key value config,if symbol : is in your log,please wrap : with quotation mark \"",
 		}},
+		histogram: &sls.GetHistogramsResponse{Count: 1},
 	}
 	adapter := &aliyunSLSAdapter{newClient: func(context.Context, domain.ConnectionInput) (aliyunSLSClient, error) {
 		return fake, nil
@@ -242,13 +245,12 @@ func TestAliyunSLSQueryRewritesUnindexedFieldAsScanSPL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
-	want := "* | where json_extract_scalar(content, '$.type') is null or " +
-		"json_extract_scalar(content, '$.type') != 'business'"
+	want := "* not business"
 	if len(fake.logRequests) != 2 || fake.logRequests[1].Query != want || result.EffectiveQuery != want {
-		t.Fatalf("scan requests = %#v, effective query = %q", fake.logRequests, result.EffectiveQuery)
+		t.Fatalf("full-text requests = %#v, effective query = %q", fake.logRequests, result.EffectiveQuery)
 	}
-	if fake.histogramRequest != nil || len(result.Histogram) != 0 {
-		t.Fatalf("scan query must not use index histogram: request %#v, result %#v", fake.histogramRequest, result.Histogram)
+	if fake.histogramRequest == nil || fake.histogramRequest.Query != want {
+		t.Fatalf("full-text histogram request = %#v", fake.histogramRequest)
 	}
 }
 

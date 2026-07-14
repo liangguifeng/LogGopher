@@ -772,12 +772,12 @@ function App() {
   /** Adds an include or exclude clause for a clicked result value. */
   function filterByValue(
     field: string | undefined,
-    displayField: string,
+    _displayField: string,
     value: unknown,
     exclude: boolean,
   ) {
     if (activeAdapter?.id === "aliyun-sls") {
-      const next = appendSLSResultFilter(query, field, displayField, value, exclude);
+      const next = appendSLSResultFilter(query, field, value, exclude);
       setQuery(next);
       void executeQuery(profileId, project, logstore, next, timeRange);
       return;

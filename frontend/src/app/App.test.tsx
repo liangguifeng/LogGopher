@@ -1,3 +1,4 @@
+/** Exercises connection, workspace, preference, and query flows through mocked Wails bindings. */
 import {render,screen,waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach,describe,expect,it,vi} from 'vitest';
@@ -123,7 +124,7 @@ describe('App connection workflow',()=>{
     await waitFor(()=>expect(screen.getByRole('navigation',{name:'日志库'})).toBeInTheDocument());
   });
 
-  it('uses an SLS full-text phrase when a clicked JSON path has no field index',async()=>{
+  it('uses an SLS full-text term when a clicked JSON path has no field index',async()=>{
     const user=userEvent.setup();
     const profile={
       id:7,adapterId:'aliyun-sls',name:'SLS production',
@@ -146,19 +147,19 @@ describe('App connection workflow',()=>{
 
     await waitFor(()=>expect(api.Query).toHaveBeenLastCalledWith(expect.objectContaining({
       group:'project-a',logstore:'application',
-      query:"* | where json_extract_scalar(content, '$.level_name') = 'WARN'",
+      query:"* and WARN",
     })));
     expect(screen.getByPlaceholderText('输入查询语句、SQL、SPL'))
-      .toHaveValue("* | where json_extract_scalar(content, '$.level_name') = 'WARN'");
+      .toHaveValue("* and WARN");
   });
 
-  it('replaces a manually entered unindexed SLS field query with backend scan SPL',async()=>{
+  it('replaces a manually entered unindexed SLS field query with full text',async()=>{
     const user=userEvent.setup();
     const profile={
       id:7,adapterId:'aliyun-sls',name:'SLS production',
       endpoint:'https://cn-hangzhou.log.aliyuncs.com',project:'',region:'',
     };
-    const effective="* | where json_extract_scalar(content, '$.type') is null or json_extract_scalar(content, '$.type') != 'business'";
+    const effective="* not business";
     api.Bootstrap.mockResolvedValue({...bootstrap,profiles:[profile]});
     api.ConnectSaved.mockResolvedValue({profileId:7,groups:[{name:'project-a',logstores:['application']}]});
     api.Query.mockImplementation((input:{query:string})=>Promise.resolve({

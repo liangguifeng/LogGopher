@@ -1,3 +1,4 @@
+/** Locks SLS quoting, full-text fallback, exclusion, and pipeline composition rules. */
 import { describe, expect, it } from "vitest";
 import { appendSLSResultFilter, encodeSLSQueryValue } from "./query";
 
@@ -7,7 +8,6 @@ describe("Alibaba Cloud SLS result filters", () => {
       appendSLSResultFilter(
         "",
         "content.type",
-        "content.type",
         "business",
         false,
       ),
@@ -15,7 +15,6 @@ describe("Alibaba Cloud SLS result filters", () => {
     expect(
       appendSLSResultFilter(
         "*",
-        "content.type",
         "content.type",
         "business",
         true,
@@ -28,7 +27,6 @@ describe("Alibaba Cloud SLS result filters", () => {
       appendSLSResultFilter(
         "* | where status >= 500",
         "content.type",
-        "content.type",
         "business",
         false,
       ),
@@ -37,25 +35,18 @@ describe("Alibaba Cloud SLS result filters", () => {
       appendSLSResultFilter(
         "*",
         undefined,
-        "content.type",
-        "business",
-        true,
+        "rule-sgkamoiika09m9cjmm",
+        false,
       ),
-    ).toBe([
-      "* | where json_extract_scalar(content, '$.type') is null or",
-      "json_extract_scalar(content, '$.type') != 'business'",
-    ].join(" "));
+    ).toBe("* and rule-sgkamoiika09m9cjmm");
     expect(
       appendSLSResultFilter(
         "* | project content",
         undefined,
-        "content.type",
         "business",
-        false,
+        true,
       ),
-    ).toBe(
-      "* | where json_extract_scalar(content, '$.type') = 'business' | project content",
-    );
+    ).toBe("* not business | project content");
     expect(encodeSLSQueryValue("and")).toBe('"and"');
   });
 });

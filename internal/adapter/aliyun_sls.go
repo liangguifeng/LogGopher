@@ -76,6 +76,7 @@ func (a *aliyunSLSAdapter) Connect(ctx context.Context, input domain.ConnectionI
 	return groups, nil
 }
 
+// listAllAliyunProjects follows SLS offset pagination and returns a stable sorted list.
 func listAllAliyunProjects(ctx context.Context, client aliyunSLSClient) ([]string, error) {
 	const pageSize = 500
 	projects := make([]string, 0)
@@ -224,7 +225,7 @@ func normalizeAliyunHistogram(histograms []sls.SingleHistogram) []domain.Histogr
 	return buckets
 }
 
-// queryAliyunLogs converts SLS-rejected unindexed clauses into equivalent scan SPL predicates.
+// queryAliyunLogs converts SLS-rejected field clauses into console-style full-text terms.
 func queryAliyunLogs(
 	ctx context.Context,
 	client aliyunSLSClient,
@@ -245,7 +246,7 @@ func queryAliyunLogs(
 		if !ok {
 			return nil, effectiveExpression, err
 		}
-		next, rewritten := rewriteAliyunUnindexedFilterAsSPL(effectiveExpression, field)
+		next, rewritten := rewriteAliyunUnindexedFilterAsFullText(effectiveExpression, field)
 		if !rewritten || next == effectiveExpression {
 			return nil, effectiveExpression, err
 		}

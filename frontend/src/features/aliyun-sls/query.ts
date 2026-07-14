@@ -1,3 +1,4 @@
+/** Encodes result-menu filters in the provider-native Alibaba Cloud SLS dialect. */
 const reservedQueryTerms = new Set([
   "and",
   "or",
@@ -16,7 +17,7 @@ const reservedQueryTerms = new Set([
 export function encodeSLSQueryValue(value: unknown): string {
   if (typeof value !== "string") return String(value);
   if (
-    /^[A-Za-z0-9_]+$/.test(value) &&
+    /^[A-Za-z0-9_-]+$/.test(value) &&
     !reservedQueryTerms.has(value.toLowerCase())
   )
     return value;
@@ -57,43 +58,21 @@ function splitSLSPipeline(expression: string): [string, string] {
   return [expression, ""];
 }
 
-/** Builds an SLS Scan predicate for an unindexed field or nested JSON value. */
-function buildSLSScanPredicate(
-  field: string,
-  value: unknown,
-  exclude: boolean,
-): string {
-  const separator = field.indexOf(".");
-  const jsonPath = `$.${field.slice(separator + 1)}`.replace(/'/g, "''");
-  const reference =
-    separator < 0
-      ? encodeSLSQueryField(field)
-      : `json_extract_scalar(${encodeSLSQueryField(field.slice(0, separator))}, '${jsonPath}')`;
-  const literal = `'${String(value).replace(/'/g, "''")}'`;
-  return exclude
-    ? `${reference} is null or ${reference} != ${literal}`
-    : `${reference} = ${literal}`;
-}
-
-/** Appends an SLS-specific index or Scan filter before an optional SPL pipeline. */
+/** Appends an SLS field-index or full-text filter before an optional pipeline. */
 export function appendSLSResultFilter(
   expression: string,
   queryField: string | undefined,
-  displayField: string,
   value: unknown,
   exclude: boolean,
 ): string {
   const [rawSearch, rawPipeline] = splitSLSPipeline(expression);
   const search = rawSearch.trim() || "*";
-  if (!queryField) {
-    const predicate = buildSLSScanPredicate(displayField, value, exclude);
-    const pipeline = rawPipeline.trim();
-    return pipeline
-      ? `${search} | where ${predicate} | ${pipeline}`
-      : `${search} | where ${predicate}`;
-  }
   const encodedValue = encodeSLSQueryValue(value);
-  const clause = `${encodeSLSQueryField(queryField)}: ${encodedValue}`;
+  // SLS console falls back to a full-text term when the clicked JSON leaf has
+  // no field index. The display-only JSON path must never become an SPL field.
+  const clause = queryField
+    ? `${encodeSLSQueryField(queryField)}: ${encodedValue}`
+    : encodedValue;
   const filtered = `${search} ${exclude ? "not" : "and"} ${clause}`;
   const pipeline = rawPipeline.trim();
   return pipeline ? `${filtered} | ${pipeline}` : filtered;
