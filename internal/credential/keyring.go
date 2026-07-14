@@ -65,4 +65,5 @@ func (k *KeyringStore) Delete(profileID int64) error {
 	return nil
 }
 
+// account derives the stable legacy keyring account from a persisted profile ID.
 func account(profileID int64) string { return fmt.Sprintf("profile:%d", profileID) }

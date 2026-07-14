@@ -1,5 +1,7 @@
 package application
 
+// This file verifies application orchestration with in-memory adapter and credential doubles.
+
 import (
 	"context"
 	"errors"

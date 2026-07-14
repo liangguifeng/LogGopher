@@ -1,5 +1,7 @@
 package adapter
 
+// This file exercises CloudWatch request mapping, pagination, errors, and normalization.
+
 import (
 	"context"
 	"errors"

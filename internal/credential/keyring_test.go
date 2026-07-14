@@ -1,5 +1,7 @@
 package credential
 
+// This file verifies legacy operating-system keyring persistence and error wrapping.
+
 import (
 	"errors"
 	"testing"

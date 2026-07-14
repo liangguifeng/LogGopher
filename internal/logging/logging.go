@@ -123,6 +123,7 @@ func NewWithConfig(config Config) (*Manager, error) {
 	return &Manager{directory: config.Directory, logger: logger, sink: sink}, nil
 }
 
+// withDefaults fills omitted rotation and severity settings without overriding explicit values.
 func withDefaults(config Config) Config {
 	if config.MaxSizeMB <= 0 {
 		config.MaxSizeMB = 10
@@ -151,16 +152,30 @@ func (m *Manager) WailsLogger() wailslogger.Logger { return &wailsAdapter{logger
 // Close flushes and closes the rotating file sink.
 func (m *Manager) Close() error { return m.sink.Close() }
 
+// wailsAdapter satisfies the Wails logger contract through the shared slog sink.
 type wailsAdapter struct{ logger *slog.Logger }
 
+// Print maps the Wails generic print channel to structured info output.
 func (w *wailsAdapter) Print(message string) { w.logger.Info(message, "source", "wails") }
+
+// Trace maps Wails trace output below the standard slog debug threshold.
 func (w *wailsAdapter) Trace(message string) {
 	w.logger.Log(context.Background(), slog.LevelDebug-4, message, "source", "wails")
 }
-func (w *wailsAdapter) Debug(message string)   { w.logger.Debug(message, "source", "wails") }
-func (w *wailsAdapter) Info(message string)    { w.logger.Info(message, "source", "wails") }
+
+// Debug maps Wails debug output into the structured logger.
+func (w *wailsAdapter) Debug(message string) { w.logger.Debug(message, "source", "wails") }
+
+// Info maps Wails informational output into the structured logger.
+func (w *wailsAdapter) Info(message string) { w.logger.Info(message, "source", "wails") }
+
+// Warning maps Wails warnings to slog warning records.
 func (w *wailsAdapter) Warning(message string) { w.logger.Warn(message, "source", "wails") }
-func (w *wailsAdapter) Error(message string)   { w.logger.Error(message, "source", "wails") }
+
+// Error maps Wails errors to slog error records.
+func (w *wailsAdapter) Error(message string) { w.logger.Error(message, "source", "wails") }
+
+// Fatal records a fatal framework error without terminating before deferred cleanup.
 func (w *wailsAdapter) Fatal(message string) {
 	w.logger.Error(message, "source", "wails", "fatal", true)
 	os.Exit(1)

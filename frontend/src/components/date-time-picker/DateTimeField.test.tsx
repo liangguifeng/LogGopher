@@ -1,3 +1,4 @@
+/** Verifies calendar navigation and clock changes through accessible controls. */
 import {render,screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe,expect,it,vi} from 'vitest';

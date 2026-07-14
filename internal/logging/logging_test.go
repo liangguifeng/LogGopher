@@ -1,5 +1,7 @@
 package logging
 
+// This file verifies JSON output, retention defaults, permissions, and Wails bridging.
+
 import (
 	"bufio"
 	"encoding/json"

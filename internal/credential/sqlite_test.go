@@ -1,5 +1,7 @@
 package credential
 
+// This file verifies SQLite credential persistence and lazy legacy migration.
+
 import (
 	"errors"
 	"path/filepath"

@@ -1,5 +1,7 @@
 package adapter
 
+// This file verifies provider query rewriting for normalized semantic fields.
+
 import "testing"
 
 func TestRewriteSemanticLevelFilters(t *testing.T) {

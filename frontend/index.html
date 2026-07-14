@@ -5,11 +5,13 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
     <title>LogGopher</title>
     <script>
+        // Seed visual attributes before React mounts to prevent a theme flash in the webview.
         document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.dataset.density = 'comfortable';
     </script>
 </head>
 <body>
+<!-- React owns all visible application content below this mount point. -->
 <div id="root"></div>
 <script src="./src/main.tsx" type="module"></script>
 </body>

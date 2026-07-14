@@ -1,3 +1,4 @@
+/** Configures the React build and the jsdom-based unit-test environment. */
 import {defineConfig} from 'vitest/config'
 import react from '@vitejs/plugin-react'
 

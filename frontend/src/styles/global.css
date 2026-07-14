@@ -1,1 +1,2 @@
+/* Gives the Wails webview a fixed full-height root and keeps buttons outside drag regions. */
 html,body,#root{height:100%;overflow:hidden}button{-webkit-app-region:no-drag}

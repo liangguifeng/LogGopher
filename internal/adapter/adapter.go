@@ -49,12 +49,18 @@ func (r *Registry) List() []domain.AdapterInfo {
 	return result
 }
 
+// stubAdapter preserves registry metadata while rejecting unavailable operations.
 type stubAdapter struct{ info domain.AdapterInfo }
 
+// Info returns metadata for an adapter whose provider implementation is unavailable.
 func (a stubAdapter) Info() domain.AdapterInfo { return a.info }
+
+// Connect returns an explicit unsupported error instead of synthetic provider data.
 func (a stubAdapter) Connect(context.Context, domain.ConnectionInput) ([]domain.LogGroup, error) {
 	return nil, fmt.Errorf("%s: %w", a.info.Name, ErrNotImplemented)
 }
+
+// Query returns an explicit unsupported error instead of synthetic log results.
 func (a stubAdapter) Query(context.Context, domain.ConnectionInput, domain.QueryInput) (domain.QueryResult, error) {
 	return domain.QueryResult{}, ErrNotImplemented
 }

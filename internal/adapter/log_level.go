@@ -86,6 +86,7 @@ func findStructuredLogLevel(value any, depth int) string {
 	return ""
 }
 
+// normalizedLevelKey canonicalizes separators and casing before candidate matching.
 func normalizedLevelKey(key string) string {
 	return strings.ToLower(strings.NewReplacer("-", "", "_", "", ".", "").Replace(strings.TrimSpace(key)))
 }
@@ -117,6 +118,7 @@ func canonicalLogLevel(value any) string {
 	return canonicalNumericLogLevel(number)
 }
 
+// canonicalNumericLogLevel maps syslog-style numeric severities to display levels.
 func canonicalNumericLogLevel(level float64) string {
 	switch {
 	case level >= 600:

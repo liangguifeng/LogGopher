@@ -1,3 +1,4 @@
+/** Renders provider groups and logstores without rerendering the parent workspace. */
 import { memo, useState } from "react";
 
 /** Provider-level parent and its available logstores. */
@@ -23,6 +24,7 @@ function LogstoreTree({
     () => new Set(activeGroup ? [activeGroup] : []),
   );
 
+  /** Updates an immutable expansion set so React can detect the local state change. */
   const toggleGroup = (group: string) => {
     setExpandedGroups((current) => {
       const next = new Set(current);

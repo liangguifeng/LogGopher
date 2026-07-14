@@ -1,5 +1,7 @@
 package domain
 
+// This file verifies provider-specific connection requirements at the domain boundary.
+
 import "testing"
 
 func TestAWSConnectionRequiresRegion(t *testing.T) {

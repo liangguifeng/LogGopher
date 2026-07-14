@@ -1,4 +1,4 @@
-/* ARDM × VS Code: flat, dense, functional. Loaded last as the visual contract. */
+/* Supplies the dense functional baseline consumed by the final Observatory theme. */
 :root {
   color-scheme: dark;
   --bg: #1e1e1e;

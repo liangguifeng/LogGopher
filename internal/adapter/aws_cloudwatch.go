@@ -27,15 +27,18 @@ type awsCloudWatchClient interface {
 	FilterLogEvents(context.Context, *cloudwatchlogs.FilterLogEventsInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.FilterLogEventsOutput, error)
 }
 
+// awsClientFactory abstracts SDK construction for deterministic adapter tests.
 type awsClientFactory func(context.Context, domain.ConnectionInput) (awsCloudWatchClient, error)
 
 // awsCloudWatchAdapter maps CloudWatch Log Groups into the shared logstore contract.
 type awsCloudWatchAdapter struct{ newClient awsClientFactory }
 
+// newAWSCloudWatchAdapter constructs the adapter with the production SDK client factory.
 func newAWSCloudWatchAdapter() Adapter {
 	return &awsCloudWatchAdapter{newClient: newAWSCloudWatchSDKClient}
 }
 
+// Info returns stable CloudWatch Logs metadata exposed to the connection screen.
 func (a *awsCloudWatchAdapter) Info() domain.AdapterInfo {
 	return domain.AdapterInfo{
 		ID: "aws-cloudwatch", Name: "AWS CloudWatch", Description: "CloudWatch Logs", Ready: true,
@@ -119,6 +122,7 @@ func (a *awsCloudWatchAdapter) Query(
 	}, nil
 }
 
+// client creates and caches a CloudWatch client for normalized connection metadata.
 func (a *awsCloudWatchAdapter) client(ctx context.Context, input domain.ConnectionInput) (awsCloudWatchClient, error) {
 	if err := validateAWSInput(input); err != nil {
 		return nil, err
@@ -129,6 +133,7 @@ func (a *awsCloudWatchAdapter) client(ctx context.Context, input domain.Connecti
 	return a.newClient(ctx, input)
 }
 
+// newAWSCloudWatchSDKClient builds an official SDK client with explicit static credentials.
 func newAWSCloudWatchSDKClient(ctx context.Context, input domain.ConnectionInput) (awsCloudWatchClient, error) {
 	httpClient := &http.Client{Timeout: awsRequestTimeout}
 	cfg, err := config.LoadDefaultConfig(
@@ -146,6 +151,7 @@ func newAWSCloudWatchSDKClient(ctx context.Context, input domain.ConnectionInput
 	}), nil
 }
 
+// describeAllAWSLogGroups follows continuation tokens and returns a stable sorted list.
 func describeAllAWSLogGroups(ctx context.Context, client awsCloudWatchClient) ([]string, error) {
 	names := make([]string, 0)
 	var token *string
@@ -173,6 +179,7 @@ func describeAllAWSLogGroups(ctx context.Context, client awsCloudWatchClient) ([
 	return names, nil
 }
 
+// validateAWSInput rejects incomplete credentials and regions before SDK construction.
 func validateAWSInput(input domain.ConnectionInput) error {
 	if strings.TrimSpace(input.AccessKey) == "" || strings.TrimSpace(input.SecretKey) == "" || strings.TrimSpace(input.Region) == "" {
 		return errors.New("AWS CloudWatch requires Access Key ID, Secret Access Key and region")
@@ -187,6 +194,7 @@ func validateAWSInput(input domain.ConnectionInput) error {
 	return nil
 }
 
+// parseAWSRange validates the domain time interval before converting it to epoch values.
 func parseAWSRange(fromValue, toValue string) (time.Time, time.Time, error) {
 	from, err := time.Parse(time.RFC3339, fromValue)
 	if err != nil {
@@ -202,6 +210,7 @@ func parseAWSRange(fromValue, toValue string) (time.Time, time.Time, error) {
 	return from, to, nil
 }
 
+// normalizeAWSEvent maps one SDK event and any embedded JSON into the domain record.
 func normalizeAWSEvent(event awstypes.FilteredLogEvent) domain.LogEntry {
 	message := aws.ToString(event.Message)
 	fields := map[string]string{
@@ -231,6 +240,7 @@ func normalizeAWSEvent(event awstypes.FilteredLogEvent) domain.LogEntry {
 	return domain.LogEntry{Time: timestamp, Level: level, Message: message, Fields: fields}
 }
 
+// sameStringPointer compares optional continuation tokens without dereferencing nil values.
 func sameStringPointer(left, right *string) bool {
 	return left != nil && right != nil && *left == *right
 }

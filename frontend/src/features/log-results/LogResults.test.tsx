@@ -1,3 +1,4 @@
+/** Verifies JSON decoding, field resolution, filter menus, views, and pagination. */
 import {fireEvent,render,screen,waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {describe,expect,it,vi} from 'vitest';

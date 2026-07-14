@@ -11,6 +11,7 @@ import (
 
 const projectURL = "https://github.com/liangguifeng/LogGopher"
 
+// newApplicationMenu builds every native menu using the active locale.
 func newApplicationMenu(app *App, language string) *menu.Menu {
 	l := menuLabelsFor(language)
 	bar := menu.NewMenu()
@@ -83,6 +84,7 @@ func newApplicationMenu(app *App, language string) *menu.Menu {
 	return bar
 }
 
+// menuLabels contains every localized string used by the native menu tree.
 type menuLabels struct {
 	about, settings, hide, quit, file, newConnection, reconnect string
 	edit, undo, redo, cut, copy, paste, delete, selectAll       string
@@ -92,6 +94,7 @@ type menuLabels struct {
 	shortcutHelp, project, openLogs                             string
 }
 
+// menuLabelsFor returns the supported native menu labels for one locale.
 func menuLabelsFor(language string) menuLabels {
 	if language == "en-US" {
 		return menuLabels{about: "About LogGopher", settings: "Settings…", hide: "Hide LogGopher", quit: "Quit LogGopher",
@@ -111,6 +114,7 @@ func menuLabelsFor(language string) menuLabels {
 		shortcuts: "键盘快捷键", shortcutHelp: "⌘/Ctrl + N  新建连接\n⌘/Ctrl + R  重新连接\n⌘/Ctrl + ,  设置\nEnter  运行查询\n⌘/Ctrl + Enter  换行\nCtrl + ⌘/Ctrl + F  切换全屏\nEsc  关闭面板", project: "项目主页", openLogs: "打开日志目录"}
 }
 
+// toggleFullscreen mirrors the native fullscreen state into the active window.
 func toggleFullscreen(app *App) {
 	if runtime.WindowIsFullscreen(app.ctx) {
 		runtime.WindowUnfullscreen(app.ctx)
@@ -119,6 +123,7 @@ func toggleFullscreen(app *App) {
 	runtime.WindowFullscreen(app.ctx)
 }
 
+// fullscreenAccelerator follows the platform convention for fullscreen toggling.
 func fullscreenAccelerator() *keys.Accelerator {
 	if goruntime.GOOS == "darwin" {
 		return keys.Combo("f", keys.CmdOrCtrlKey, keys.ControlKey)
@@ -126,14 +131,17 @@ func fullscreenAccelerator() *keys.Accelerator {
 	return keys.Key("f11")
 }
 
+// emit creates a menu callback that sends a signal-only Wails event.
 func emit(app *App, event string) menu.Callback {
 	return func(*menu.CallbackData) { runtime.EventsEmit(app.ctx, event) }
 }
 
+// emitValue creates a menu callback that sends a Wails event payload.
 func emitValue(app *App, event, value string) menu.Callback {
 	return func(*menu.CallbackData) { runtime.EventsEmit(app.ctx, event, value) }
 }
 
+// editCommand forwards a standard document editing command to the webview.
 func editCommand(app *App, command string) menu.Callback {
 	// Native EditMenu labels are hard-coded in Wails, so localized menu items
 	// forward their operations to the currently focused webview element.
@@ -142,6 +150,7 @@ func editCommand(app *App, command string) menu.Callback {
 	}
 }
 
+// pasteCommand reads the native clipboard and injects its text into the focused control.
 func pasteCommand(app *App) menu.Callback {
 	return func(*menu.CallbackData) {
 		text, err := runtime.ClipboardGetText(app.ctx)

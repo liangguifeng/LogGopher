@@ -1,5 +1,7 @@
 package adapter
 
+// This file verifies registry ordering and explicit unsupported-adapter failures.
+
 import (
 	"context"
 	"errors"

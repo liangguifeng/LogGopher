@@ -1,5 +1,7 @@
 package adapter
 
+// This file exercises CLS topic discovery, search mapping, pagination, and normalization.
+
 import (
 	"context"
 	"errors"

@@ -1,5 +1,7 @@
 package adapter
 
+// This file verifies cross-provider structured log-level normalization.
+
 import (
 	"testing"
 

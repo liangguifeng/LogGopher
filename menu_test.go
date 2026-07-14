@@ -1,5 +1,7 @@
 package main
 
+// This file verifies native menu localization, shortcuts, and safe clipboard bridging.
+
 import (
 	"runtime"
 	"strings"

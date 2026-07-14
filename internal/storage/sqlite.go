@@ -51,6 +51,7 @@ func OpenPath(path string) (*Store, error) {
 	return s, nil
 }
 
+// migrate creates the current schema and removes obsolete synthetic demo data.
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS profiles (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +120,7 @@ func (s *Store) ensureProfileCredentialColumns() error {
 	return nil
 }
 
+// profileColumnExists inspects SQLite metadata before applying an additive migration.
 func (s *Store) profileColumnExists(name string) (bool, error) {
 	rows, err := s.db.Query("PRAGMA table_info(profiles)")
 	if err != nil {

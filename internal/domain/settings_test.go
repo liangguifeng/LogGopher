@@ -1,5 +1,7 @@
 package domain
 
+// This file verifies the complete supported settings validation matrix.
+
 import "testing"
 
 func TestSettingsValidate(t *testing.T) {

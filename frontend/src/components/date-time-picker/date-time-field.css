@@ -1,3 +1,4 @@
+/* Styles the accessible calendar popup and clock spinner in both application themes. */
 .date-time-field { position: relative; min-width: 0; }
 .date-time-label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 11px; }
 .date-time-trigger { width: 100%; height: 38px; display: grid; grid-template-columns: 18px minmax(0,1fr) 15px; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--filter-bg); color: var(--text); cursor: pointer; text-align: left; }

@@ -1,3 +1,4 @@
+/** Implements the theme-consistent date and time editor used by query ranges. */
 import { useEffect, useMemo, useState } from "react";
 import "./date-time-field.css";
 
@@ -52,12 +53,15 @@ export default function DateTimeField({ label, value, locale, onChange }: Props)
     );
   }, [month]);
 
+  /** Emits the controlled value through the domain's ISO-8601 time contract. */
   const update = (date: Date) => onChange(date.toISOString());
+  /** Replaces only the calendar portion while preserving the selected time. */
   const selectDay = (day: Date) => {
     const next = new Date(selected);
     next.setFullYear(day.getFullYear(), day.getMonth(), day.getDate());
     update(next);
   };
+  /** Wraps a clock segment and clears seconds for minute-level query precision. */
   const adjustTime = (part: TimePart, delta: number) => {
     const next = new Date(selected);
     if (part === "hour") next.setHours((next.getHours() + delta + 24) % 24);
@@ -65,6 +69,7 @@ export default function DateTimeField({ label, value, locale, onChange }: Props)
     next.setSeconds(0, 0);
     update(next);
   };
+  /** Moves the calendar to today without discarding the currently selected time. */
   const chooseToday = () => {
     const now = new Date();
     const next = new Date(selected);

@@ -1,3 +1,4 @@
+/** Mounts the React application into the Wails webview document. */
 import React from 'react'
 import {createRoot} from 'react-dom/client'
 import './styles/global.css'

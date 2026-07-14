@@ -1,5 +1,7 @@
 package storage
 
+// This file verifies migrations, profile lifecycle, credentials, and scoped query history.
+
 import (
 	"database/sql"
 	"errors"

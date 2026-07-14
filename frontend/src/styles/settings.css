@@ -1,3 +1,4 @@
+/* Defines preference-page controls and the legacy drawer primitives they supersede. */
 :root { color-scheme: dark; }
 
 .close-button, .secondary { border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }

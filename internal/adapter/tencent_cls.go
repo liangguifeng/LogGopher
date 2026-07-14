@@ -451,6 +451,7 @@ func normalizeTencentLog(log *cls.LogInfo) domain.LogEntry {
 	return domain.LogEntry{Time: timestamp, Level: level, Message: message, Fields: fields}
 }
 
+// parseTencentRange validates the domain time interval before building CLS requests.
 func parseTencentRange(fromValue, toValue string) (time.Time, time.Time, error) {
 	from, err := time.Parse(time.RFC3339, fromValue)
 	if err != nil {
@@ -466,10 +467,12 @@ func parseTencentRange(fromValue, toValue string) (time.Time, time.Time, error) 
 	return from, to, nil
 }
 
+// tencentConnectionKey isolates cached clients by endpoint, region, and access key.
 func tencentConnectionKey(input domain.ConnectionInput) string {
 	return strings.Join([]string{input.Name, input.Endpoint, input.Region}, "\x00")
 }
 
+// shortTencentTopicID produces a compact suffix for duplicate display names.
 func shortTencentTopicID(topicID string) string {
 	if len(topicID) <= 8 {
 		return topicID
@@ -477,6 +480,7 @@ func shortTencentTopicID(topicID string) string {
 	return topicID[:8]
 }
 
+// stringifyTencentValue normalizes scalar and structured CLS values for domain fields.
 func stringifyTencentValue(value any) string {
 	if text, ok := value.(string); ok {
 		return text
@@ -488,6 +492,7 @@ func stringifyTencentValue(value any) string {
 	return string(encoded)
 }
 
+// caseInsensitiveTencentField finds the first candidate while preserving its provider key.
 func caseInsensitiveTencentField(fields map[string]string, candidates ...string) (string, string) {
 	for _, candidate := range candidates {
 		for key, value := range fields {
@@ -499,17 +504,20 @@ func caseInsensitiveTencentField(fields map[string]string, candidates ...string)
 	return "", ""
 }
 
+// addTencentMetadata copies a non-empty optional SDK value into normalized fields.
 func addTencentMetadata(fields map[string]string, key string, value *string) {
 	if value != nil && *value != "" {
 		fields[key] = *value
 	}
 }
 
+// integerValue accepts the numeric representations returned by CLS aggregate rows.
 func integerValue(value any) (int, bool) {
 	parsed, ok := int64Value(value)
 	return int(parsed), ok
 }
 
+// int64Value converts supported SDK and decoded JSON numbers without panicking.
 func int64Value(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case float64:
@@ -522,6 +530,7 @@ func int64Value(value any) (int64, bool) {
 	}
 }
 
+// stringValue unwraps optional SDK strings into the domain's empty-string convention.
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
@@ -529,8 +538,17 @@ func stringValue(value *string) string {
 	return *value
 }
 
-func stringPointer(value string) *string    { return &value }
-func int64Pointer(value int64) *int64       { return &value }
-func uint64Pointer(value uint64) *uint64    { return &value }
+// stringPointer allocates a string pointer for SDK requests and test fixtures.
+func stringPointer(value string) *string { return &value }
+
+// int64Pointer allocates an int64 pointer for SDK requests and test fixtures.
+func int64Pointer(value int64) *int64 { return &value }
+
+// uint64Pointer allocates a uint64 pointer for SDK requests and test fixtures.
+func uint64Pointer(value uint64) *uint64 { return &value }
+
+// float64Pointer allocates a float64 pointer for decoded aggregate test values.
 func float64Pointer(value float64) *float64 { return &value }
-func boolPointer(value bool) *bool          { return &value }
+
+// boolPointer allocates a boolean pointer for SDK request options.
+func boolPointer(value bool) *bool { return &value }

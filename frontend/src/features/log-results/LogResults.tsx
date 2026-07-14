@@ -1,3 +1,4 @@
+/** Renders normalized logs as interactive raw JSON and tabular result views. */
 import { MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ClipboardSetText } from "../../../wailsjs/runtime/runtime";
 import "./log-results.css";
