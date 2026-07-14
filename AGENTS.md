@@ -9,7 +9,7 @@ Build a secure, cross-platform desktop log explorer. Preserve the unified domain
 - `app.go` is a thin Wails boundary. Business rules belong in `internal/application`.
 - Frontend code never imports vendor SDK concepts.
 - Every adapter implements `Info`, `Connect`, and `Query`, respects context cancellation, and maps responses into `internal/domain`.
-- SQLite stores non-secret metadata only. Persist AK/SK exclusively through `internal/credential`; never log or return secrets to the frontend.
+- SQLite stores profile metadata and plaintext AK/SK by product decision. Access credentials through `internal/credential`; never log them. The frontend may receive them only from the explicit `GetProfileCredentials` editing flow, never from Bootstrap or profile lists.
 - Use parameterized SQL. Add migrations for schema changes and test them in memory.
 - Return explicit errors for unsupported functionality; never return synthetic cloud data.
 
@@ -39,4 +39,4 @@ For UI changes, also verify the Wails window at 1024×680 and 1440×900. Update 
 
 ## Near-term roadmap
 
-Aliyun SLS, the OS credential store, and Tencent CLS are implemented. Continue with AWS CloudWatch, then add cross-provider error classification and pagination refinements. Every adapter change needs unit tests around request mapping, pagination, timeout, error handling, and result normalization. Never add synthetic provider data as a fallback.
+Aliyun SLS, Tencent CLS, AWS CloudWatch, and SQLite credential persistence are implemented. Continue with cross-provider error classification and pagination refinements. Every adapter change needs unit tests around request mapping, pagination, timeout, error handling, and result normalization. Never add synthetic provider data as a fallback.

@@ -16,12 +16,13 @@ LogGopher is a cross-platform log explorer built with Go, Wails, and React. It c
 
 ## Features
 
-- Manage and quickly switch between cloud connections
+- Search, paginate, inspect, edit, and switch cloud connections in a desktop workspace
 - Browse resources as Project/Region and Logstore/Topic/Log Group trees
 - Filter by time, reuse query history, paginate results, and inspect histograms
 - Expand nested JSON, filter fields, and switch between raw and table views
-- Use light, dark, system, Chinese, and English interface settings
-- Store AK/SK in the operating-system credential store and non-secret settings in SQLite
+- Switch light, dark, system, Chinese, and English preferences from a dedicated settings page
+- Store connection profiles and AK/SK together in the local SQLite database
+- Refill AK while editing and keep SK masked until explicitly revealed
 
 ## Getting started
 
@@ -57,7 +58,7 @@ make build
 ├── internal/
 │   ├── adapter/           # Cloud log adapters
 │   ├── application/       # Use cases and sessions
-│   ├── credential/        # Operating-system credential store
+│   ├── credential/        # SQLite credential access and legacy migration
 │   ├── domain/            # Shared domain model
 │   ├── logging/           # JSON runtime logging
 │   └── storage/           # SQLite persistence
